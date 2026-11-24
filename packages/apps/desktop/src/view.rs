@@ -248,11 +248,11 @@ fn key_cell(app: &App, key: u8) -> Element<'_, Message> {
 }
 
 fn right_panel(app: &App) -> Element<'_, Message> {
-    let mut items: Vec<Element<'_, Message>> = vec![section(tr!("actions_palette"))];
+    let mut items: Vec<Element<'_, Message>> =
+        vec![inspector(app), section(tr!("actions_palette"))];
     for definition in actions::definitions() {
         items.push(palette_item(definition));
     }
-    items.push(inspector(app));
 
     container(scrollable(Column::with_children(items).spacing(8)).height(Length::Fill))
         .width(Length::Fixed(320.0))
@@ -280,10 +280,19 @@ fn palette_item(definition: &'static multideck_core::ActionDef) -> Element<'stat
 }
 
 fn inspector(app: &App) -> Element<'_, Message> {
+    let key = app.selected_key.unwrap_or(0);
+    let heading = || match app.selected_key {
+        Some(selected) => section(tr_args!(
+            "inspector_selected",
+            "number" => selected + 1
+        )),
+        None => section(tr!("inspector_title")),
+    };
+
     let Some(action) = app.selected_action() else {
         return column![
-            section(tr!("inspector_title")),
-            text(tr!("inspector_empty")).size(12).color(Colors::MUTED),
+            heading(),
+            text(tr!("inspector_empty")).size(12).color(Colors::MUTED)
         ]
         .spacing(6)
         .into();
@@ -296,10 +305,8 @@ fn inspector(app: &App) -> Element<'_, Message> {
             .into();
     };
 
-    let mut fields: Vec<Element<'_, Message>> = vec![
-        section(tr!("inspector_title")),
-        text(tr(definition.label_key)).size(15).into(),
-    ];
+    let mut fields: Vec<Element<'_, Message>> =
+        vec![heading(), text(tr(definition.label_key)).size(15).into()];
 
     for (index, field) in definition.fields.iter().enumerate() {
         let value = app
@@ -307,6 +314,29 @@ fn inspector(app: &App) -> Element<'_, Message> {
             .get(index)
             .map(|(_, value)| value.clone())
             .unwrap_or_else(|| field.default.to_string());
+
+        if definition.kind == "profile" && field.key == "profile" {
+            let mut chips: Vec<Element<'_, Message>> = Vec::new();
+            for profile in &app.profiles {
+                chips.push(
+                    button(text(profile.name.clone()).size(11))
+                        .on_press(Message::FieldChanged(index, profile.id.clone()))
+                        .padding(6)
+                        .style(multideck_ui::toggle_button(profile.id == value))
+                        .into(),
+                );
+            }
+            fields.push(
+                column![
+                    text(tr(field.label_key)).size(10).color(Colors::MUTED),
+                    Row::with_children(chips).spacing(6),
+                ]
+                .spacing(3)
+                .into(),
+            );
+            continue;
+        }
+
         fields.push(
             column![
                 text(tr(field.label_key)).size(10).color(Colors::MUTED),
@@ -332,7 +362,6 @@ fn inspector(app: &App) -> Element<'_, Message> {
         );
     }
 
-    let key = app.selected_key.unwrap_or(0);
     fields.push(
         row![
             button(text(tr!("inspector_apply")).size(12))
@@ -413,7 +442,7 @@ fn settings(app: &App) -> Element<'_, Message> {
                 text(app.data_dir.display().to_string())
                     .size(11)
                     .color(Colors::MUTED),
-                button(text(tr!("settings_storage")).size(12))
+                button(text(tr!("settings_open_folder")).size(12))
                     .on_press(Message::OpenDataFolder)
                     .padding(8)
                     .style(multideck_ui::ghost_button()),

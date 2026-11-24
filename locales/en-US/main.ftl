@@ -37,6 +37,7 @@ actions_clear_key = Clear key
 actions_remove = Remove
 
 inspector_title = Action
+inspector_selected = Key { $number }
 inspector_empty = No key selected.
 inspector_settings = Settings
 inspector_apply = Apply
@@ -96,6 +97,7 @@ settings_language = Language
 settings_language_desc = Applies to the whole application immediately.
 settings_brightness = Default brightness
 settings_storage = Data folder
+settings_open_folder = Open folder
 settings_about = About
 settings_version = Version
 settings_devices_hint = Devices are added by adapters. USB and Stream Deck Mobile adapters arrive in a later milestone.

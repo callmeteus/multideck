@@ -114,6 +114,14 @@ A release build uses thin LTO and strips symbols:
 cargo build --release -p multideck-desktop
 ```
 
+To produce a Windows installer with the icon set, Start menu entry and uninstaller:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1
+```
+
+The result lands in `dist/`. Inno Setup 6 is required for that step only. Linux distribution packages are still on the roadmap.
+
 The binary is `multideck`.
 
 ## Quickstart
@@ -166,8 +174,7 @@ The workspace layout, the recipe for a new action, the checklist for a new adapt
 ## Roadmap
 
 - Finish the Elgato USB adapter: enumeration, input reports, image encoding, reconnect.
-- Schedule `Delay` effects between multi action steps.
-- Replace the profile id text field with a picker and edit multi action steps in the inspector.
+- Add a visual multi action editor for the `multi` action.
 - Answer the Stream Deck Mobile research questions, then decide on an adapter.
 - Add the Mirabox and Ajazz adapter with a shared model table.
 - Publish Windows and Linux packages.

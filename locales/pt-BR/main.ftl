@@ -37,6 +37,7 @@ actions_clear_key = Limpar tecla
 actions_remove = Remover
 
 inspector_title = Ação
+inspector_selected = Tecla { $number }
 inspector_empty = Nenhuma tecla selecionada.
 inspector_settings = Ajustes
 inspector_apply = Aplicar
@@ -96,6 +97,7 @@ settings_language = Idioma
 settings_language_desc = Aplica imediatamente em todo o aplicativo.
 settings_brightness = Brilho padrão
 settings_storage = Pasta de dados
+settings_open_folder = Abrir pasta
 settings_about = Sobre
 settings_version = Versão
 settings_devices_hint = Dispositivos entram por adaptadores. Adaptadores USB e Stream Deck Mobile chegam em um marco posterior.

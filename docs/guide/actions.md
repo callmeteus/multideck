@@ -21,7 +21,7 @@ Effects are separate from side effects on purpose. An action crate never needs t
 | `Delay(millis)` | Scheduling point between steps |
 
 ::: warning Current limitation
-The editor logs `Delay` effects but does not sleep yet, so a multi action runs its steps back to back. The effect is part of the contract and will be scheduled; see the [roadmap](/roadmap).
+The editor schedules every `Delay` effect, so a multi action runs its steps with real pauses between them. The queue continues on a task, which keeps the interface responsive while the delay runs.
 :::
 
 ## Hotkey
@@ -135,7 +135,7 @@ Switches the active profile.
 | --- | --- | --- |
 | `profile` | text | empty |
 
-The value is a profile id, not a profile name. Ids are visible in the profile JSON and in the file name under `profiles/`. The inspector only offers a text field today, so copy the id from the file. An empty value is rejected; a missing profile is reported as a failed load and the current profile stays active.
+The inspector lists every profile by name and stores its id. An empty value is rejected; a missing profile is reported as a failed load and the current profile stays active.
 
 ## Brightness
 

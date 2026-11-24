@@ -1,5 +1,6 @@
 /target
 /packages/target
+/dist
 
 # documentation site
 docs/node_modules

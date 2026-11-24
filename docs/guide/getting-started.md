@@ -26,7 +26,13 @@ The binary is called `multideck`. For a release build:
 cargo build --release -p multideck-desktop
 ```
 
-Compiled binaries are not published yet. The [roadmap](/roadmap) tracks packaging for Windows installers and Linux packages.
+Compiled binaries are not published yet, but the repository can build the Windows installer locally:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1
+```
+
+It wraps the release build and Inno Setup 6, and leaves the installer in `dist/`. Linux packages are tracked in the [roadmap](/roadmap).
 
 ## First run
 

@@ -1,5 +1,6 @@
 //! Application state and message handling.
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -11,7 +12,7 @@ use multideck_device_virtual::VirtualDeck;
 use multideck_events::{AppEvent, ConnectedDevice, EventBus};
 use multideck_i18n::{self as i18n, Locale};
 use multideck_render::KeyRenderer;
-use multideck_store::Store;
+use multideck_store::{ProfileWatcher, Store};
 use serde_json::json;
 use tokio::sync::broadcast;
 
@@ -57,12 +58,14 @@ pub enum Message {
     PressKey(u8),
     /// Opens the data directory.
     OpenDataFolder,
-    /// Shows the editor_
+    /// Shows the editor screen.
     ShowEditor,
-    /// Shows settings_
+    /// Shows the settings screen.
     ShowSettings,
-    /// Drains device events from the bus.
+    /// Drains device events from the bus and checks for external profile edits.
     Poll,
+    /// Continues the effect queue after a delay.
+    EffectsReady,
 }
 
 /// The whole application state.
@@ -78,6 +81,8 @@ pub struct App {
     pub(crate) key_images: Vec<Option<ImageHandle>>,
     pub(crate) status: String,
     pub(crate) data_dir: PathBuf,
+    pending_effects: VecDeque<Effect>,
+    watcher: Option<ProfileWatcher>,
     #[allow(dead_code)]
     runtime: tokio::runtime::Runtime,
     store: Store,
@@ -95,6 +100,11 @@ impl App {
         match Self::new() {
             Ok(mut app) => {
                 app.refresh();
+                if let Ok(value) = std::env::var("MULTIDECK_SELECT_KEY")
+                    && let Ok(key) = value.parse::<u8>()
+                {
+                    app.select(key);
+                }
                 app.status = i18n::tr!("status_ready");
                 (app, Task::none())
             }
@@ -158,6 +168,8 @@ impl App {
             key_images: Vec::new(),
             status,
             data_dir,
+            pending_effects: VecDeque::new(),
+            watcher: store.watch_profiles().ok(),
             runtime,
             store,
             renderer,
@@ -191,7 +203,12 @@ impl App {
     /// Handles one message.
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Poll => self.drain_events(),
+            Message::Poll => {
+                self.drain_events();
+                if self.watcher.as_ref().is_some_and(ProfileWatcher::changed) {
+                    self.reload_from_disk();
+                }
+            }
             Message::SelectKey(key) => {
                 if let Some(kind) = self.pending_kind.take() {
                     self.assign(key, kind);
@@ -220,7 +237,8 @@ impl App {
             }
             Message::SelectProfile(id) => self.load_profile(&id),
             Message::NewProfile => self.new_profile(),
-            Message::PressKey(key) => self.press(key),
+            Message::PressKey(key) => return self.press(key),
+            Message::EffectsReady => return self.run_pending(),
             Message::OpenDataFolder => {
                 if let Err(error) = open::that(&self.data_dir) {
                     tracing::warn!(%error, "could not open the data folder");
@@ -230,6 +248,19 @@ impl App {
             Message::ShowSettings => self.screen = Screen::Settings,
         }
         Task::none()
+    }
+
+    fn reload_from_disk(&mut self) {
+        let Ok(mut profile) = self.store.load_profile(&self.profile.id) else {
+            return;
+        };
+        profile.fit_to(&self.caps);
+        if profile == self.profile {
+            return;
+        }
+        self.profile = profile;
+        self.refresh();
+        self.status = i18n::tr!("status_saved");
     }
 
     fn drain_events(&mut self) {
@@ -400,40 +431,54 @@ impl App {
         }
     }
 
-    fn press(&mut self, key: u8) {
+    fn press(&mut self, key: u8) -> Task<Message> {
         self.deck.press(key);
         let Some(action) = self.profile.slot(key).and_then(|slot| slot.action.clone()) else {
-            return;
+            return Task::none();
         };
         let title = actions::present(&action, key).title;
         match actions::execute(&action) {
             Ok(effects) => {
-                self.apply_effects(effects);
                 self.status = i18n::tr_args("status_action_ran", &[("action", title)]);
+                self.pending_effects.extend(effects);
+                self.run_pending()
             }
             Err(error) => {
                 tracing::warn!(%error, kind = %action.kind, "action failed");
                 self.status =
                     i18n::tr_args("status_action_failed", &[("reason", error.to_string())]);
+                Task::none()
             }
         }
     }
 
-    fn apply_effects(&mut self, effects: Vec<Effect>) {
-        for effect in effects {
+    fn run_pending(&mut self) -> Task<Message> {
+        while let Some(effect) = self.pending_effects.pop_front() {
             match effect {
-                Effect::SwitchProfile(id) => self.load_profile(&id),
-                Effect::SwitchPage(index) => {
-                    if index < self.profile.pages.len() {
-                        self.profile.active_page = index;
-                        self.refresh();
-                    }
+                Effect::Delay(millis) if millis > 0 => {
+                    return Task::perform(
+                        async move { tokio::time::sleep(Duration::from_millis(millis)).await },
+                        |_| Message::EffectsReady,
+                    );
                 }
-                Effect::SetBrightness(percent) => self.set_brightness(percent),
-                Effect::Delay(millis) => {
-                    tracing::debug!(millis, "delay effect ignored by the editor");
+                Effect::Delay(_) => continue,
+                other => self.apply_effect(other),
+            }
+        }
+        Task::none()
+    }
+
+    fn apply_effect(&mut self, effect: Effect) {
+        match effect {
+            Effect::SwitchProfile(id) => self.load_profile(&id),
+            Effect::SwitchPage(index) => {
+                if index < self.profile.pages.len() {
+                    self.profile.active_page = index;
+                    self.refresh();
                 }
             }
+            Effect::SetBrightness(percent) => self.set_brightness(percent),
+            Effect::Delay(_) => {}
         }
     }
 
@@ -527,7 +572,7 @@ mod tests {
         );
         app.profile.slot_mut(0).expect("slot").action = Some(action);
 
-        app.press(0);
+        let _ = app.press(0);
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while !marker.exists() && std::time::Instant::now() < deadline {

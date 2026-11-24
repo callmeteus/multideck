@@ -171,6 +171,11 @@ The GitHub Actions workflow runs, in order:
 
 A pull request is expected to pass all four. Tests that need a display are written against the virtual deck and never open a window, so they run on a headless runner.
 
+## Packaging
+
+- Windows: `powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1` builds the release binary and compiles `packaging/windows/multideck.iss` with Inno Setup 6. The installer is written to `dist/`, which is ignored by git.
+- Linux: `cargo build --release -p multideck-desktop` produces the binary. Distribution packages are still on the [roadmap](/roadmap).
+
 ## Commit style
 
 Commit messages follow conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`) and are written in English. Keep a change focused: one action, one adapter or one documentation pass per pull request.

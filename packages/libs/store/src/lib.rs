@@ -13,6 +13,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use multideck_core::{DeviceCaps, Profile};
+use notify::Watcher;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -38,6 +39,10 @@ pub enum StoreError {
     /// A profile could not be decoded or written.
     #[error("invalid profile: {0}")]
     Profile(String),
+
+    /// The profile directory could not be watched.
+    #[error("could not watch profiles: {0}")]
+    Watch(String),
 }
 
 /// Locations used by the store.
@@ -114,6 +119,23 @@ impl Default for Settings {
             brightness: default_brightness(),
             active_profile: None,
         }
+    }
+}
+
+/// Watches the profiles directory so the app can reload edits made outside it.
+pub struct ProfileWatcher {
+    receiver: std::sync::mpsc::Receiver<()>,
+    _watcher: notify::RecommendedWatcher,
+}
+
+impl ProfileWatcher {
+    /// Drains pending events and reports whether any profile file changed.
+    pub fn changed(&self) -> bool {
+        let mut changed = false;
+        while self.receiver.try_recv().is_ok() {
+            changed = true;
+        }
+        changed
     }
 }
 
@@ -281,6 +303,32 @@ impl Store {
         self.update_settings(|settings| settings.active_profile = Some(id.to_string()))?;
         Ok(())
     }
+
+    /// Watches the profiles directory for external edits.
+    pub fn watch_profiles(&self) -> Result<ProfileWatcher, StoreError> {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let mut watcher =
+            notify::recommended_watcher(move |result: Result<notify::Event, notify::Error>| {
+                if let Ok(event) = result
+                    && (event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove())
+                {
+                    let _ = sender.send(());
+                }
+            })
+            .map_err(|error| StoreError::Watch(error.to_string()))?;
+
+        watcher
+            .watch(
+                &self.paths.profiles_dir(),
+                notify::RecursiveMode::NonRecursive,
+            )
+            .map_err(|error| StoreError::Watch(error.to_string()))?;
+
+        Ok(ProfileWatcher {
+            receiver,
+            _watcher: watcher,
+        })
+    }
 }
 
 fn sanitize(id: &str) -> String {
@@ -360,5 +408,26 @@ mod tests {
             .map(|profile| profile.name)
             .collect();
         assert_eq!(names, vec!["Alpha".to_string(), "Beta".to_string()]);
+    }
+
+    #[test]
+    fn watcher_reports_external_profile_changes() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let store = Store::open_at(Paths::new(directory.path())).expect("open store");
+        let watcher = store.watch_profiles().expect("watch");
+        let caps = DeviceCaps::default();
+
+        store
+            .save_profile(&Profile::new("External", &caps))
+            .expect("save");
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            if watcher.changed() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        panic!("the watcher did not report the new profile");
     }
 }

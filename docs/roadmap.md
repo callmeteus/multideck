@@ -14,8 +14,9 @@ MultiDeck is built in small, testable steps. This page records what is done, wha
 | Elgato USB adapter | In progress | HID enumeration, input reports, image encoding |
 | Stream Deck Mobile adapter | Research | Protocol, pairing and licensing questions open |
 | Mirabox and Ajazz adapter | Planned | Shared HID protocol with a model table |
-| Delay scheduling | Planned | The effect exists, the host does not sleep yet |
-| Installers and packages | Planned | No release artifacts yet |
+| Delay scheduling | Done | Multi actions wait between steps without blocking the interface |
+| Profile sync | Done | A directory watcher reloads profiles edited outside the app |
+| Installers and packages | Partial | Windows installer via `scripts/build-installer.ps1`; Linux packages planned |
 
 ## Next: finish the Elgato adapter
 
@@ -29,9 +30,8 @@ Acceptance: a Stream Deck MK.2 shows the active page, runs a hotkey, and survive
 
 ## Then: scheduling and editor depth
 
-- Honour `Delay` effects between multi action steps.
-- Replace the profile id text field with a picker driven by the profile list.
-- Edit multi action steps in the inspector instead of JSON.
+- Add a visual multi action editor instead of raw JSON steps.
+- Show the last external reload and the watcher state in Settings.
 - Show encoder and touch strip bindings when the device has them.
 - Add a key label editor next to the action inspector.
 
@@ -54,7 +54,6 @@ One adapter with a model table, built on the publicly documented HID protocol. T
 
 ## Later: distribution
 
-- Windows installer with the icon set from `assets/icons/`.
 - Linux packages (`.deb`, Flatpak) and a desktop entry.
 - Signed binaries and a reproducible build in CI.
 - A public download page on this site.
