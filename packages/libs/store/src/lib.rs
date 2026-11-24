@@ -106,6 +106,9 @@ pub struct Settings {
     /// Id of the profile that was open when the app closed.
     #[serde(default)]
     pub active_profile: Option<String>,
+    /// Workstation identity announced to Stream Deck Mobile.
+    #[serde(default)]
+    pub mobile_workstation_id: String,
 }
 
 fn default_brightness() -> u8 {
@@ -118,6 +121,7 @@ impl Default for Settings {
             locale: String::new(),
             brightness: default_brightness(),
             active_profile: None,
+            mobile_workstation_id: String::new(),
         }
     }
 }

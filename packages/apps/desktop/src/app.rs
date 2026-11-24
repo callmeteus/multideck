@@ -9,6 +9,7 @@ use iced::widget::image::Handle as ImageHandle;
 use multideck_actions::{self as actions, Effect};
 use multideck_core::{ActionInstance, DeviceCaps, DeviceCommand, DeviceDescriptor, Profile};
 use multideck_device_api::DeviceAdapter;
+use multideck_device_sdmobile::{MobileConfig, MobileDeck};
 use multideck_device_virtual::VirtualDeck;
 use multideck_events::{AppEvent, ConnectedDevice, EventBus};
 use multideck_i18n::{self as i18n, Locale};
@@ -57,6 +58,20 @@ pub enum Message {
     NewProfile,
     /// Simulates a press on a key.
     PressKey(u8),
+    /// Starts dragging an action from the palette.
+    StartDrag(&'static str),
+    /// Drops the dragged action on a key.
+    DropOnKey(u8),
+    /// Cancels the current drag.
+    CancelDrag,
+    /// Asks for confirmation before removing the action of the selected key.
+    RequestDelete,
+    /// Confirms the removal.
+    ConfirmDelete,
+    /// Closes the confirmation without removing anything.
+    CancelDelete,
+    /// Keyboard or timer event without an action.
+    Noop,
     /// Opens the data directory.
     OpenDataFolder,
     /// Shows the editor screen.
@@ -78,6 +93,8 @@ pub struct App {
     pub(crate) locale: Locale,
     pub(crate) selected_key: Option<u8>,
     pub(crate) pending_kind: Option<&'static str>,
+    pub(crate) dragging: Option<&'static str>,
+    pub(crate) pending_delete: Option<u8>,
     pub(crate) inspector: Vec<(String, String)>,
     pub(crate) key_images: Vec<Option<ImageHandle>>,
     pub(crate) status: String,
@@ -94,6 +111,8 @@ pub struct App {
     bus: EventBus,
     events: broadcast::Receiver<AppEvent>,
     deck: Option<VirtualDeck>,
+    mobile: Option<MobileDeck>,
+    mobile_port: Option<u16>,
     #[allow(dead_code)]
     device: ConnectedDevice,
 }
@@ -128,29 +147,54 @@ impl App {
 
         let mut store = Store::open().map_err(|error| error.to_string())?;
 
-        let force_virtual = std::env::var("MULTIDECK_DEVICE")
-            .map(|value| value.eq_ignore_ascii_case("virtual"))
-            .unwrap_or(false);
+        let requested = std::env::var("MULTIDECK_DEVICE")
+            .unwrap_or_default()
+            .to_ascii_lowercase();
 
-        let detected = if force_virtual {
+        let detected = if requested == "virtual" || requested == "mobile" {
             Vec::new()
         } else {
             multideck_device_elgato::discover()
         };
 
-        let (descriptor, deck, adapter): (
+        let (descriptor, deck, adapter, mobile): (
             DeviceDescriptor,
             Option<VirtualDeck>,
             Box<dyn DeviceAdapter>,
-        ) = match detected.into_iter().next() {
-            Some(found) => {
-                let descriptor = found.descriptor.clone();
-                (descriptor, None, Box::new(found.into_adapter()))
-            }
-            None => {
-                let (deck, adapter) = VirtualDeck::new();
-                let descriptor = deck.descriptor().clone();
-                (descriptor, Some(deck), Box::new(adapter))
+            Option<MobileDeck>,
+        ) = if requested == "mobile" {
+            let workstation_id = if store.settings().mobile_workstation_id.is_empty() {
+                let generated = multideck_device_sdmobile::generate_workstation_id();
+                store
+                    .update_settings(|settings| {
+                        settings.mobile_workstation_id = generated.clone();
+                    })
+                    .map_err(|error| error.to_string())?;
+                generated
+            } else {
+                store.settings().mobile_workstation_id.clone()
+            };
+            let hostname = std::env::var("COMPUTERNAME")
+                .or_else(|_| std::env::var("HOSTNAME"))
+                .unwrap_or_else(|_| "multideck".to_string());
+            let mut config = MobileConfig::new(workstation_id, hostname);
+            config.auto_trust = std::env::var("MULTIDECK_MOBILE_TRUST")
+                .map(|value| value != "0")
+                .unwrap_or(true);
+            let (mobile, adapter) = MobileDeck::new(config);
+            let descriptor = mobile.descriptor().clone();
+            (descriptor, None, Box::new(adapter), Some(mobile))
+        } else {
+            match detected.into_iter().next() {
+                Some(found) => {
+                    let descriptor = found.descriptor.clone();
+                    (descriptor, None, Box::new(found.into_adapter()), None)
+                }
+                None => {
+                    let (deck, adapter) = VirtualDeck::new();
+                    let descriptor = deck.descriptor().clone();
+                    (descriptor, Some(deck), Box::new(adapter), None)
+                }
             }
         };
 
@@ -196,6 +240,8 @@ impl App {
             locale,
             selected_key: None,
             pending_kind: None,
+            dragging: None,
+            pending_delete: None,
             inspector: Vec::new(),
             key_images: Vec::new(),
             status,
@@ -211,6 +257,8 @@ impl App {
             bus,
             events,
             deck,
+            mobile,
+            mobile_port: None,
             device,
         })
     }
@@ -232,7 +280,20 @@ impl App {
 
     /// Timer that drains device events.
     pub fn subscription(&self) -> iced::Subscription<Message> {
-        iced::time::every(Duration::from_millis(250)).map(|_| Message::Poll)
+        iced::Subscription::batch([
+            iced::time::every(Duration::from_millis(250)).map(|_| Message::Poll),
+            iced::keyboard::listen().map(|event| match event {
+                iced::keyboard::Event::KeyPressed {
+                    key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Delete),
+                    ..
+                } => Message::RequestDelete,
+                iced::keyboard::Event::KeyPressed {
+                    key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+                    ..
+                } => Message::CancelDelete,
+                _ => Message::Noop,
+            }),
+        ])
     }
 
     /// Handles one message.
@@ -249,6 +310,19 @@ impl App {
                 {
                     return iced::window::latest().and_then(iced::window::gain_focus);
                 }
+                if let Some(mobile) = &self.mobile {
+                    let port = mobile.port();
+                    if port != self.mobile_port {
+                        self.mobile_port = port;
+                        self.status = match port {
+                            Some(port) => i18n::tr_args(
+                                "status_mobile_waiting",
+                                &[("port", port.to_string())],
+                            ),
+                            None => i18n::tr!("status_mobile_starting"),
+                        };
+                    }
+                }
             }
             Message::SelectKey(key) => {
                 if let Some(kind) = self.pending_kind.take() {
@@ -256,7 +330,7 @@ impl App {
                 }
                 self.select(key);
             }
-            Message::ClearKey => self.delete_action(),
+            Message::ClearKey => self.request_delete(),
             Message::PickAction(kind) => {
                 self.pending_kind = Some(kind);
                 self.status = i18n::tr!("editor_assign_hint");
@@ -267,7 +341,7 @@ impl App {
                 }
             }
             Message::ApplyInspector => self.apply_inspector(),
-            Message::DeleteAction => self.delete_action(),
+            Message::DeleteAction => self.request_delete(),
             Message::SelectLocale(locale) => self.set_locale(locale),
             Message::SetBrightness(percent) => self.set_brightness(percent),
             Message::NewPage => self.new_page(),
@@ -280,6 +354,24 @@ impl App {
             Message::NewProfile => self.new_profile(),
             Message::PressKey(key) => return self.press(key),
             Message::EffectsReady => return self.run_pending(),
+            Message::StartDrag(kind) => {
+                self.dragging = Some(kind);
+                self.status = i18n::tr!("editor_drag_hint");
+            }
+            Message::DropOnKey(key) => {
+                if let Some(kind) = self.dragging.take() {
+                    self.assign(key, kind);
+                }
+                self.select(key);
+            }
+            Message::CancelDrag => self.dragging = None,
+            Message::RequestDelete => self.request_delete(),
+            Message::ConfirmDelete => self.confirm_delete(),
+            Message::CancelDelete => {
+                self.pending_delete = None;
+                self.dragging = None;
+            }
+            Message::Noop => {}
             Message::OpenDataFolder => {
                 if let Err(error) = open::that(&self.data_dir) {
                     tracing::warn!(%error, "could not open the data folder");
@@ -335,14 +427,31 @@ impl App {
             slot.action = Some(instance);
         }
         self.selected_key = Some(key);
+        self.dragging = None;
+        self.pending_kind = None;
         self.persist();
         self.refresh();
         self.load_inspector();
         self.status = i18n::tr!("inspector_applied");
     }
 
-    fn delete_action(&mut self) {
+    fn request_delete(&mut self) {
         let Some(key) = self.selected_key else {
+            return;
+        };
+        let has_action = self
+            .profile
+            .slot(key)
+            .and_then(|slot| slot.action.as_ref())
+            .is_some();
+        if has_action {
+            self.pending_delete = Some(key);
+            self.status = i18n::tr!("confirm_delete_title");
+        }
+    }
+
+    fn confirm_delete(&mut self) {
+        let Some(key) = self.pending_delete.take() else {
             return;
         };
         if let Some(slot) = self.profile.slot_mut(key) {

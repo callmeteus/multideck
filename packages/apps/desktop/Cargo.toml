@@ -18,6 +18,7 @@ multideck-actions.workspace = true
 multideck-core.workspace = true
 multideck-device-api.workspace = true
 multideck-device-elgato.workspace = true
+multideck-device-sdmobile.workspace = true
 multideck-device-virtual.workspace = true
 multideck-events.workspace = true
 multideck-i18n.workspace = true

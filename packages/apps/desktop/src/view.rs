@@ -1,7 +1,8 @@
-//! Screens, panels and widgets of the desktop app_
+//! Screens, panels and widgets of the desktop app.
 
 use iced::widget::{
-    Column, Row, button, column, container, image, row, scrollable, slider, text, text_input,
+    Column, Row, button, column, container, image, mouse_area, row, scrollable, slider, text,
+    text_input,
 };
 use iced::{Element, Length};
 use multideck_actions as actions;
@@ -246,10 +247,9 @@ fn key_cell(app: &App, key: u8) -> Element<'_, Message> {
     };
 
     container(
-        button(inner)
+        mouse_area(inner)
             .on_press(Message::SelectKey(key))
-            .padding(2)
-            .style(multideck_ui::bare_button()),
+            .on_release(Message::DropOnKey(key)),
     )
     .padding(3)
     .style(multideck_ui::key_frame(selected))
@@ -257,13 +257,21 @@ fn key_cell(app: &App, key: u8) -> Element<'_, Message> {
 }
 
 fn right_panel(app: &App) -> Element<'_, Message> {
+    if let Some(key) = app.pending_delete {
+        return panel_container(confirmation(app, key));
+    }
+
     let mut items: Vec<Element<'_, Message>> =
         vec![inspector(app), section(tr!("actions_palette"))];
     for definition in actions::definitions() {
         items.push(palette_item(definition));
     }
 
-    container(scrollable(Column::with_children(items).spacing(8)).height(Length::Fill))
+    panel_container(Column::with_children(items).spacing(8))
+}
+
+fn panel_container<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    container(scrollable(content).height(Length::Fill))
         .width(Length::Fixed(320.0))
         .height(Length::Fill)
         .padding(12)
@@ -271,20 +279,53 @@ fn right_panel(app: &App) -> Element<'_, Message> {
         .into()
 }
 
+fn confirmation(app: &App, key: u8) -> Element<'_, Message> {
+    let action = app
+        .profile
+        .slot(key)
+        .and_then(|slot| slot.action.as_ref())
+        .map(|action| actions::present(action, key).title)
+        .unwrap_or_default();
+
+    column![
+        section(tr!("confirm_delete_title")),
+        text(action).size(15),
+        text(tr!("confirm_delete_body"))
+            .size(11)
+            .color(Colors::MUTED),
+        row![
+            button(text(tr!("inspector_delete")).size(12))
+                .on_press(Message::ConfirmDelete)
+                .padding(8)
+                .style(multideck_ui::primary_button()),
+            button(text(tr!("common_cancel")).size(12))
+                .on_press(Message::CancelDelete)
+                .padding(8)
+                .style(multideck_ui::ghost_button()),
+        ]
+        .spacing(6),
+    ]
+    .spacing(10)
+    .into()
+}
+
 fn palette_item(definition: &'static multideck_core::ActionDef) -> Element<'static, Message> {
     let label = tr(definition.label_key);
     let description = tr(definition.description_key);
-    button(
-        column![
-            text(label).size(13),
-            text(description).size(10).color(Colors::MUTED),
-        ]
-        .spacing(2),
+    mouse_area(
+        container(
+            column![
+                text(label).size(13),
+                text(description).size(10).color(Colors::MUTED),
+            ]
+            .spacing(2),
+        )
+        .width(Length::Fill)
+        .padding(8)
+        .style(multideck_ui::card()),
     )
-    .on_press(Message::PickAction(definition.kind))
-    .width(Length::Fill)
-    .padding(8)
-    .style(multideck_ui::ghost_button())
+    .on_press(Message::StartDrag(definition.kind))
+    .on_release(Message::CancelDrag)
     .into()
 }
 

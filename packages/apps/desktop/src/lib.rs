@@ -16,6 +16,7 @@ pub fn run() -> iced::Result {
     iced::application(App::boot, App::update, App::view)
         .title(App::title)
         .theme(App::theme)
+        .subscription(App::subscription)
         .window_size((1180.0, 760.0))
         .run()
 }

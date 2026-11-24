@@ -29,6 +29,9 @@ profiles_main = Main
 editor_title = Keys
 editor_select_key = Select a key to configure it.
 editor_assign_hint = Pick an action, then click a key.
+editor_drag_hint = Drop the action on a key, or press Esc to cancel.
+confirm_delete_title = Remove this action?
+confirm_delete_body = This removes the action from the selected key.
 editor_empty_slot = Empty
 
 actions_title = Actions
@@ -103,6 +106,8 @@ settings_version = Version
 settings_devices_hint = Devices are added by adapters. USB and Stream Deck Mobile adapters arrive in a later milestone.
 
 status_ready = Ready
+status_mobile_starting = Starting the Stream Deck Mobile server
+status_mobile_waiting = Waiting for Stream Deck Mobile on port { $port }
 status_page_of = Page { $current } of { $total }
 status_action_ran = Ran { $action }
 status_action_failed = Action failed: { $reason }

@@ -100,3 +100,8 @@ Keep ids unique. Two files with the same `id` will produce two entries in the pr
 Back up the whole data directory, not just `profiles/`. `settings.toml` records which profile is active, and `assets/` may hold files referenced by actions. Copying the directory while the app is closed is enough; there is no database and no lock file.
 
 Next: [actions](/guide/actions) documents every action and its settings.
+
+
+## Placing and removing actions
+
+Drag an action from the palette on the right onto a key. Releasing over a key assigns the action. To remove one, select the key and press Delete; the editor always asks for confirmation before removing it.

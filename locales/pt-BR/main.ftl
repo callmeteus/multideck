@@ -29,6 +29,9 @@ profiles_main = Principal
 editor_title = Teclas
 editor_select_key = Selecione uma tecla para configurar.
 editor_assign_hint = Escolha uma ação e depois clique em uma tecla.
+editor_drag_hint = Solte a ação em uma tecla ou pressione Esc para cancelar.
+confirm_delete_title = Remover esta ação?
+confirm_delete_body = Isso remove a ação da tecla selecionada.
 editor_empty_slot = Vazia
 
 actions_title = Ações
@@ -103,6 +106,8 @@ settings_version = Versão
 settings_devices_hint = Dispositivos entram por adaptadores. Adaptadores USB e Stream Deck Mobile chegam em um marco posterior.
 
 status_ready = Pronto
+status_mobile_starting = Iniciando o servidor do Stream Deck Mobile
+status_mobile_waiting = Aguardando o Stream Deck Mobile na porta { $port }
 status_page_of = Página { $current } de { $total }
 status_action_ran = Executou { $action }
 status_action_failed = Falha na ação: { $reason }
