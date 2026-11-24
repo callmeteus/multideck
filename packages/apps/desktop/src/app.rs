@@ -183,6 +183,7 @@ impl App {
                 .or_else(|_| std::env::var("HOSTNAME"))
                 .unwrap_or_else(|_| "multideck".to_string());
             let mut config = MobileConfig::new(workstation_id, hostname);
+            config.trust_file = Some(store.paths().root().join("mobile_trusted.txt"));
             config.auto_trust = std::env::var("MULTIDECK_MOBILE_TRUST")
                 .map(|value| value == "1")
                 .unwrap_or(false);

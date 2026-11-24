@@ -108,7 +108,7 @@ Stream Deck Mobile is the official phone and tablet app. It is not a USB device:
 
 MultiDeck hosts a **VSD2** server: a plain WebSocket advertised with mDNS `_vstreamdeck2._tcp`, speaking protobuf messages in the `vsd2` package. Start the desktop with `MULTIDECK_DEVICE=mobile`, choose **Add computer** in the phone app, and the host logs a six digit pairing code. Keys and presses flow through the same profile and action model as any other deck.
 
-The host shows a pairing card with the six digit code and waits for **Trust phone** before answering `Authenticate`. Set `MULTIDECK_MOBILE_TRUST=1` to skip the dialog for automated tests. The adapter has not been run against a physical phone yet. The protocol record is at `docs/research/sdmobile-protocol.md`.
+The host shows a pairing card with the six digit code and waits for **Trust phone** before answering `Authenticate`. Set `MULTIDECK_MOBILE_TRUST=1` to skip the dialog for automated tests. Trusted keys are remembered in `mobile_trusted.txt` inside the data folder, so a known phone reconnects without a prompt. The adapter has not been run against a physical phone yet. The protocol record is at `docs/research/sdmobile-protocol.md`.
 
 ## Mirabox and Ajazz (planned)
 

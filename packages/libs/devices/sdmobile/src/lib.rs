@@ -41,6 +41,8 @@ pub struct MobileConfig {
     pub caps: DeviceCaps,
     /// Trust clients without a confirmation dialog. Logged either way.
     pub auto_trust: bool,
+    /// File where trusted client keys are remembered. `None` keeps trust in memory.
+    pub trust_file: Option<std::path::PathBuf>,
 }
 
 impl MobileConfig {
@@ -59,6 +61,7 @@ impl MobileConfig {
                 format: KeyImageFormat::Png,
             },
             auto_trust: false,
+            trust_file: None,
         }
     }
 }
@@ -77,6 +80,7 @@ pub fn generate_workstation_id() -> String {
 }
 pub(crate) struct PairingState {
     pub code: String,
+    pub client_key: Vec<u8>,
     pub decision: Option<bool>,
 }
 
@@ -89,6 +93,7 @@ pub(crate) struct Shared {
     pub port: watch::Sender<Option<u16>>,
     pub brightness: AtomicU8,
     pub pairing: StdMutex<Option<PairingState>>,
+    pub trusted: StdMutex<Vec<Vec<u8>>>,
 }
 
 /// Host facing handle of the mobile deck.
@@ -115,6 +120,7 @@ impl MobileDeck {
         }
 
         let keys = config.caps.key_count() as usize;
+        let trusted = load_trusted(config.trust_file.as_deref());
         let (updates, _) = broadcast::channel(64);
         let (port, ports) = watch::channel(None);
         let shared = Arc::new(Shared {
@@ -126,6 +132,7 @@ impl MobileDeck {
             port,
             brightness: AtomicU8::new(80),
             pairing: StdMutex::new(None),
+            trusted: StdMutex::new(trusted),
         });
 
         let descriptor = DeviceDescriptor {
@@ -305,6 +312,59 @@ impl DeviceAdapter for MobileAdapter {
     }
 }
 
+fn load_trusted(path: Option<&std::path::Path>) -> Vec<Vec<u8>> {
+    let Some(path) = path else {
+        return Vec::new();
+    };
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    text.lines().filter_map(decode_hex).collect()
+}
+
+pub(crate) fn is_trusted(shared: &Shared, key: &[u8]) -> bool {
+    shared
+        .trusted
+        .lock()
+        .map(|trusted| trusted.iter().any(|known| known == key))
+        .unwrap_or(false)
+}
+
+pub(crate) fn remember_trust(shared: &Shared, key: &[u8]) {
+    let Ok(mut trusted) = shared.trusted.lock() else {
+        return;
+    };
+    if trusted.iter().any(|known| known == key) {
+        return;
+    }
+    trusted.push(key.to_vec());
+    if let Some(path) = &shared.config.trust_file {
+        let text = trusted
+            .iter()
+            .map(|key| encode_hex(key))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if let Err(error) = std::fs::write(path, text) {
+            tracing::warn!(%error, "could not remember the trusted phone");
+        }
+    }
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn decode_hex(text: &str) -> Option<Vec<u8>> {
+    let text = text.trim();
+    if text.is_empty() || !text.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&text[index..index + 2], 16).ok())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -466,8 +526,11 @@ mod tests {
 
     #[tokio::test]
     async fn pairing_waits_for_the_host_decision() {
+        let directory = tempfile::tempdir().expect("temp dir");
         let mut config = MobileConfig::new("PAIRINGTEST000000000", "pair-host");
         config.auto_trust = false;
+        config.trust_file = Some(directory.path().join("trusted.txt"));
+        let trust_file = config.trust_file.clone();
         let (deck, adapter) = MobileDeck::new(config);
         let mut ports = deck.port_receiver();
         let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -531,6 +594,10 @@ mod tests {
                 request_id: 5
             }))
         ));
+        assert!(
+            trust_file.as_ref().is_some_and(|path| path.exists()),
+            "the trusted key must be persisted"
+        );
 
         drop(command_tx);
         task.abort();

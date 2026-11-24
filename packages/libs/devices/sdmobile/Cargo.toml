@@ -24,6 +24,9 @@ tokio.workspace = true
 tokio-tungstenite.workspace = true
 tracing.workspace = true
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [build-dependencies]
 prost-build.workspace = true
 protoc-bin-vendored.workspace = true

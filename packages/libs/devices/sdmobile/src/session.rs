@@ -127,12 +127,14 @@ async fn handle(
                 .map(|info| info.name.clone())
                 .unwrap_or_default();
             tracing::info!(%code, %name, "mobile client introduced itself");
-            state.authenticated = shared.config.auto_trust;
+            state.authenticated =
+                shared.config.auto_trust || crate::is_trusted(shared, &hello.public_key);
             if !state.authenticated
                 && let Ok(mut pairing) = shared.pairing.lock()
             {
                 *pairing = Some(crate::PairingState {
                     code: code.clone(),
+                    client_key: hello.public_key.clone(),
                     decision: None,
                 });
             }
@@ -160,6 +162,11 @@ async fn handle(
         }
         proto::client_message::Payload::Authenticate(request) => {
             let mut accepted = state.authenticated;
+            let pending_key = shared
+                .pairing
+                .lock()
+                .ok()
+                .and_then(|pairing| pairing.as_ref().map(|state| state.client_key.clone()));
             if !accepted {
                 for _ in 0..1200 {
                     let decision = shared
@@ -180,6 +187,9 @@ async fn handle(
 
             let reply = if accepted {
                 state.authenticated = true;
+                if let Some(key) = pending_key.as_deref() {
+                    crate::remember_trust(shared, key);
+                }
                 proto::ServerMessage {
                     payload: Some(proto::server_message::Payload::Ok(proto::Ok {
                         request_id: request.request_id,
