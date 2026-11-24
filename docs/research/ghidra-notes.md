@@ -17,7 +17,8 @@ Rules for this file:
 
 | Area | Status | Owner | Notes |
 |------|--------|-------|-------|
-| Tooling installed (Ghidra 12.1.4, JDK 21) | Not started | | Ghidra requires JDK 21 |
+| Tooling installed (Ghidra 12.1.4, JDK 21) | Done | | JDK 21 at `C:\Users\Gio\scoop\apps\temurin21-jdk\current`, `analyzeHeadless.bat` verified with `JAVA_HOME` pointing there |
+| Elgato desktop app installed | Blocked | | Only WaveLink is installed on this machine; the Stream Deck app is required before any binary work |
 | REA MCP reachable (`npx -y rea-agents@6.10.1`) | Not started | | |
 | Binary inventory | Not started | | |
 | Cheap string pass (`multideck-probe strings`) | Not started | | |
@@ -117,7 +118,11 @@ nothing is left.
 
 ## TODOs
 
-- [ ] Install JDK 21 and confirm Ghidra starts.
+- [x] Install JDK 21 and confirm Ghidra starts.
+      Done: `JAVA_HOME=C:\Users\Gio\scoop\apps\temurin21-jdk\current` and
+      `support\analyzeHeadless.bat` prints its usage instead of a Java error.
+- [ ] Install the Elgato Stream Deck desktop app, then copy the install
+      directory to a scratch location before touching it.
 - [ ] Start the REA MCP server and confirm the agent can list a project.
 - [ ] Copy the install directory to a scratch location and hash the candidates.
 - [ ] Run the cheap string pass on each candidate before importing.
