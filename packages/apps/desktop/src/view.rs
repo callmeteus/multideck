@@ -257,6 +257,9 @@ fn key_cell(app: &App, key: u8) -> Element<'_, Message> {
 }
 
 fn right_panel(app: &App) -> Element<'_, Message> {
+    if let Some(code) = &app.pairing_code {
+        return panel_container(pairing_request(code));
+    }
     if let Some(key) = app.pending_delete {
         return panel_container(confirmation(app, key));
     }
@@ -277,6 +280,29 @@ fn panel_container<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, 
         .padding(12)
         .style(multideck_ui::card())
         .into()
+}
+
+fn pairing_request(code: &str) -> Element<'_, Message> {
+    column![
+        section(tr!("pairing_title")),
+        text(code.to_string()).size(26),
+        text(tr_args!("pairing_body", "code" => code))
+            .size(11)
+            .color(Colors::MUTED),
+        row![
+            button(text(tr!("pairing_accept")).size(12))
+                .on_press(Message::PairAccept)
+                .padding(8)
+                .style(multideck_ui::primary_button()),
+            button(text(tr!("pairing_reject")).size(12))
+                .on_press(Message::PairReject)
+                .padding(8)
+                .style(multideck_ui::ghost_button()),
+        ]
+        .spacing(6),
+    ]
+    .spacing(10)
+    .into()
 }
 
 fn confirmation(app: &App, key: u8) -> Element<'_, Message> {

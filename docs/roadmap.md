@@ -44,7 +44,7 @@ The adapter exists in `packages/libs/devices/sdmobile` and is enabled with `MULT
 What remains is a real phone pass:
 
 1. Pair the phone, compare the six digit code logged by the host, and confirm that both sides show the same value.
-2. Replace the auto-trust default with an in-app confirmation dialog.
+2. Confirm the pairing card code matches the phone and that trusting it persists across reconnects.
 3. Check the requested keypad sizes, image formats and page messages against the phone, then adjust the image encoder if the phone asks for LZ4 or LZFSE.
 4. Repeat after a phone sleep and a network change.
 

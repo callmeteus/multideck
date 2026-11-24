@@ -72,6 +72,10 @@ pub enum Message {
     CancelDelete,
     /// Keyboard or timer event without an action.
     Noop,
+    /// Trusts the phone waiting for pairing.
+    PairAccept,
+    /// Rejects the phone waiting for pairing.
+    PairReject,
     /// Opens the data directory.
     OpenDataFolder,
     /// Shows the editor screen.
@@ -95,6 +99,7 @@ pub struct App {
     pub(crate) pending_kind: Option<&'static str>,
     pub(crate) dragging: Option<&'static str>,
     pub(crate) pending_delete: Option<u8>,
+    pub(crate) pairing_code: Option<String>,
     pub(crate) inspector: Vec<(String, String)>,
     pub(crate) key_images: Vec<Option<ImageHandle>>,
     pub(crate) status: String,
@@ -179,8 +184,8 @@ impl App {
                 .unwrap_or_else(|_| "multideck".to_string());
             let mut config = MobileConfig::new(workstation_id, hostname);
             config.auto_trust = std::env::var("MULTIDECK_MOBILE_TRUST")
-                .map(|value| value != "0")
-                .unwrap_or(true);
+                .map(|value| value == "1")
+                .unwrap_or(false);
             let (mobile, adapter) = MobileDeck::new(config);
             let descriptor = mobile.descriptor().clone();
             (descriptor, None, Box::new(adapter), Some(mobile))
@@ -242,6 +247,7 @@ impl App {
             pending_kind: None,
             dragging: None,
             pending_delete: None,
+            pairing_code: None,
             inspector: Vec::new(),
             key_images: Vec::new(),
             status,
@@ -322,6 +328,14 @@ impl App {
                             None => i18n::tr!("status_mobile_starting"),
                         };
                     }
+                    let code = mobile.pending_pairing();
+                    if code != self.pairing_code {
+                        self.pairing_code = code;
+                        if let Some(code) = &self.pairing_code {
+                            self.status =
+                                i18n::tr_args("status_mobile_pairing", &[("code", code.clone())]);
+                        }
+                    }
                 }
             }
             Message::SelectKey(key) => {
@@ -372,6 +386,8 @@ impl App {
                 self.dragging = None;
             }
             Message::Noop => {}
+            Message::PairAccept => self.resolve_pairing(true),
+            Message::PairReject => self.resolve_pairing(false),
             Message::OpenDataFolder => {
                 if let Err(error) = open::that(&self.data_dir) {
                     tracing::warn!(%error, "could not open the data folder");
@@ -435,6 +451,17 @@ impl App {
         self.status = i18n::tr!("inspector_applied");
     }
 
+    fn resolve_pairing(&mut self, accept: bool) {
+        if let Some(mobile) = &self.mobile {
+            mobile.resolve_pairing(accept);
+        }
+        self.pairing_code = None;
+        self.status = if accept {
+            i18n::tr!("status_mobile_paired")
+        } else {
+            i18n::tr!("status_mobile_rejected")
+        };
+    }
     fn request_delete(&mut self) {
         let Some(key) = self.selected_key else {
             return;

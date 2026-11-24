@@ -58,7 +58,7 @@ impl MobileConfig {
                 touch_strip: false,
                 format: KeyImageFormat::Png,
             },
-            auto_trust: true,
+            auto_trust: false,
         }
     }
 }
@@ -75,6 +75,11 @@ pub fn generate_workstation_id() -> String {
         .map(|byte| ALPHABET[(*byte as usize) % ALPHABET.len()] as char)
         .collect()
 }
+pub(crate) struct PairingState {
+    pub code: String,
+    pub decision: Option<bool>,
+}
+
 pub(crate) struct Shared {
     pub config: MobileConfig,
     pub public_key: [u8; 32],
@@ -83,6 +88,7 @@ pub(crate) struct Shared {
     pub inputs: Mutex<Option<InputSender>>,
     pub port: watch::Sender<Option<u16>>,
     pub brightness: AtomicU8,
+    pub pairing: StdMutex<Option<PairingState>>,
 }
 
 /// Host facing handle of the mobile deck.
@@ -119,6 +125,7 @@ impl MobileDeck {
             inputs: Mutex::new(None),
             port,
             brightness: AtomicU8::new(80),
+            pairing: StdMutex::new(None),
         });
 
         let descriptor = DeviceDescriptor {
@@ -153,6 +160,23 @@ impl MobileDeck {
         self.ports.clone()
     }
 
+    /// Code of the client waiting for a trust decision, when there is one.
+    pub fn pending_pairing(&self) -> Option<String> {
+        self.shared
+            .pairing
+            .lock()
+            .ok()
+            .and_then(|pairing| pairing.as_ref().map(|state| state.code.clone()))
+    }
+
+    /// Accepts or rejects the pending pairing request.
+    pub fn resolve_pairing(&self, accept: bool) {
+        if let Ok(mut pairing) = self.shared.pairing.lock()
+            && let Some(state) = pairing.as_mut()
+        {
+            state.decision = Some(accept);
+        }
+    }
     /// Publishes an image, as the host would through a device command.
     pub fn set_image(&self, key: u8, image: Arc<RgbaImage>) {
         publish_image(&self.shared, key, image);
@@ -435,6 +459,78 @@ mod tests {
         let image = icon.image.expect("image payload");
         assert_eq!(image.format, proto::ImageFormat::Png as i32);
         assert_eq!(image.size.unwrap().width, 64);
+
+        drop(command_tx);
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn pairing_waits_for_the_host_decision() {
+        let mut config = MobileConfig::new("PAIRINGTEST000000000", "pair-host");
+        config.auto_trust = false;
+        let (deck, adapter) = MobileDeck::new(config);
+        let mut ports = deck.port_receiver();
+        let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (input_tx, _input_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let task = tokio::spawn(async move {
+            let _ = Box::new(adapter).run(command_rx, input_tx).await;
+        });
+
+        let port = loop {
+            if let Some(port) = *ports.borrow() {
+                break port;
+            }
+            ports.changed().await.expect("port sender alive");
+        };
+        let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
+            .await
+            .expect("connect");
+
+        let hello = proto::ClientMessage {
+            payload: Some(proto::client_message::Payload::Hello(
+                proto::HelloFromClient {
+                    public_key: vec![9u8; 32],
+                    client_information: Some(proto::ClientInformation {
+                        name: "Pairing phone".into(),
+                        user_agent: "Stream Deck Mobile/2.1.2".into(),
+                        protocol_version: 3,
+                        ..Default::default()
+                    }),
+                },
+            )),
+        };
+        ws.send(WsMessage::Binary(hello.encode_to_vec().into()))
+            .await
+            .expect("send hello");
+        let reply = next_server(&mut ws).await;
+        let Some(proto::server_message::Payload::Hello(server)) = reply.payload else {
+            panic!("expected HelloFromServer");
+        };
+        assert!(server.client_needs_authentication);
+        let code = deck.pending_pairing().expect("pending pairing code");
+        assert_eq!(code.len(), 6);
+
+        let authenticate = proto::ClientMessage {
+            payload: Some(proto::client_message::Payload::Authenticate(
+                proto::Authenticate { request_id: 5 },
+            )),
+        };
+        ws.send(WsMessage::Binary(authenticate.encode_to_vec().into()))
+            .await
+            .expect("send authenticate");
+
+        let early = tokio::time::timeout(std::time::Duration::from_millis(400), ws.next()).await;
+        assert!(early.is_err(), "server must wait for the decision");
+
+        deck.resolve_pairing(true);
+        let reply = next_server(&mut ws).await;
+        assert!(matches!(
+            reply.payload,
+            Some(proto::server_message::Payload::Ok(proto::Ok {
+                request_id: 5
+            }))
+        ));
 
         drop(command_tx);
         task.abort();

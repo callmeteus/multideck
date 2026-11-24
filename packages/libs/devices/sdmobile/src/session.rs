@@ -128,6 +128,14 @@ async fn handle(
                 .unwrap_or_default();
             tracing::info!(%code, %name, "mobile client introduced itself");
             state.authenticated = shared.config.auto_trust;
+            if !state.authenticated
+                && let Ok(mut pairing) = shared.pairing.lock()
+            {
+                *pairing = Some(crate::PairingState {
+                    code: code.clone(),
+                    decision: None,
+                });
+            }
 
             let port = shared.port.borrow().unwrap_or(0);
             let reply = proto::ServerMessage {
@@ -151,23 +159,42 @@ async fn handle(
             send(ws, &reply).await;
         }
         proto::client_message::Payload::Authenticate(request) => {
-            if state.authenticated {
-                let reply = proto::ServerMessage {
+            let mut accepted = state.authenticated;
+            if !accepted {
+                for _ in 0..1200 {
+                    let decision = shared
+                        .pairing
+                        .lock()
+                        .ok()
+                        .and_then(|pairing| pairing.as_ref().and_then(|state| state.decision));
+                    if let Some(decision) = decision {
+                        accepted = decision;
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                if let Ok(mut pairing) = shared.pairing.lock() {
+                    *pairing = None;
+                }
+            }
+
+            let reply = if accepted {
+                state.authenticated = true;
+                proto::ServerMessage {
                     payload: Some(proto::server_message::Payload::Ok(proto::Ok {
                         request_id: request.request_id,
                     })),
-                };
-                send(ws, &reply).await;
+                }
             } else {
-                let reply = proto::ServerMessage {
+                proto::ServerMessage {
                     payload: Some(proto::server_message::Payload::Error(proto::Error {
                         request_id: request.request_id,
                         code: proto::error::Code::AuthenticationRejected as i32,
-                        reason: Some("pairing confirmation is not enabled".into()),
+                        reason: Some("the pairing request was not confirmed".into()),
                     })),
-                };
-                send(ws, &reply).await;
-            }
+                }
+            };
+            send(ws, &reply).await;
         }
         proto::client_message::Payload::CancelAuthenticate(request) => {
             let reply = proto::ServerMessage {

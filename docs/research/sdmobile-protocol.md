@@ -233,8 +233,7 @@ adapter.
    `MULTIDECK_DEVICE=mobile`, open Stream Deck Mobile, add the computer, compare
    the six digit code logged by the host, and confirm that the keys render and
    that presses run actions.
-2. Capture one pairing session on a PC hotspot to confirm the auto-trust default
-   is acceptable, then replace it with an in-app confirmation dialog.
+2. Confirm the in-app pairing card against the phone code and persist trusted keys.
 3. Only then polish: image format selection, keypad sizes, page requests and
    shortcuts.
 
