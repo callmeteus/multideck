@@ -135,6 +135,8 @@ pnpm run build
 pnpm run preview
 ```
 
+`pnpm run dev` listens on `0.0.0.0:5173`, so the preview is reachable from another machine on the LAN or through Tailscale, not only from localhost. Open `http://<tailscale-ip>:5173` when reviewing the site from a phone or another computer.
+
 `docs/package.json` pins VitePress, `docs/pnpm-workspace.yaml` and the `pnpm.onlyBuiltDependencies` field allow the esbuild build script under both pnpm 10 and pnpm 12, and `docs/pnpm-lock.yaml` is committed. `docs/.vitepress/config.ts` enables local search, excludes `research/` from the build, and lists every page in the sidebar.
 
 `docs/public/` holds build copies of `logo-mark.svg` and `og-cover.svg`. The canonical files are in `assets/brand/`; refresh the copies when the mark changes.
