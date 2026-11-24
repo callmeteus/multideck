@@ -86,6 +86,24 @@ The server sends nothing until the client sends the first message. A second port
 Because the channel is `ws://`, a LAN capture during pairing would be readable
 without a TLS key. This is the cheapest way to close the remaining unknowns.
 
+### Wire probing
+
+A manual upgrade against a live instance (`ws://[::1]:28198/`) plus a few crafted
+frames narrowed the framing:
+
+| Frame sent | Server behaviour |
+|---|---|
+| nothing | no frame, connection stays open |
+| empty binary | close frame, code 1008, payload `03 f0` + `error parsing message` |
+| text `hello` | connection closed |
+| binary `08 01` | connection reset |
+
+So the channel is binary only, and the server validates the first message as a
+well-formed `vsd2.*` protobuf message before doing anything else. Sending an
+unrelated payload produces a policy violation, not a parse error response, which
+is why the envelope and field numbers must come from the descriptor table or a
+capture rather than from guessing.
+
 ### Message schema (`vsd2` package)
 
 The binary contains protobuf descriptors; these names and fields are exact:
