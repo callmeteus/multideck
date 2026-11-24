@@ -174,7 +174,7 @@ A pull request is expected to pass all four. Tests that need a display are writt
 ## Packaging
 
 - Windows: `powershell -ExecutionPolicy Bypass -File scripts/build-installer.ps1` builds the release binary and compiles `packaging/windows/multideck.iss` with Inno Setup 6. The installer is written to `dist/`, which is ignored by git.
-- Linux: `cargo build --release -p multideck-desktop` produces the binary, and `packaging/linux/install-user.sh` installs it in `~/.local` with a desktop entry and icon. `packaging/linux/60-multideck.rules` grants hidraw access to Elgato decks.
+- Linux: `cargo build --release -p multideck-desktop` produces the binary. `packaging/linux/install-user.sh` installs it in `~/.local`, `packaging/linux/build-deb.sh` produces a Debian package, and `packaging/linux/build-appimage.sh` produces an AppImage. `packaging/linux/60-multideck.rules` grants hidraw access to Elgato decks.
 
 ## Commit style
 

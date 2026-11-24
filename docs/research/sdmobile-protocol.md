@@ -104,6 +104,26 @@ unrelated payload produces a policy violation, not a parse error response, which
 is why the envelope and field numbers must come from the descriptor table or a
 capture rather than from guessing.
 
+### Framing experiments
+
+The close reason `error parsing message` is produced before any message specific
+logic runs, so the first frame has a framing requirement on top of protobuf. Two
+batches were tried with `scripts/probe-vsd2.py` and a throwaway variant:
+
+- oneof style: field 1 to 16, wire type 2 with an empty submessage, and wire type
+  0 with value 1. All rejected with close 1008.
+- type byte style: a single byte 0 to 16, alone and followed by `08 01`. All
+  rejected with close 1008.
+- length prefixes: `00000000`, `01000000`, `00000001`, `04000000`, alone and
+  before `08 01`. All rejected.
+
+Nothing changed the outcome, and the desktop app stayed alive for the whole scan.
+So the frame is not a bare protobuf message, not a oneof with an empty variant and
+not a four byte length prefix. The next step is to read the parser in Ghidra
+around `onNewWebSocketConnection`, or to capture a real first frame from the
+phone, where the framing, the message type and the auth payload are all visible
+at once.
+
 ### Message schema (`vsd2` package)
 
 The binary contains protobuf descriptors; these names and fields are exact:

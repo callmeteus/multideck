@@ -11,3 +11,7 @@ docs/.vitepress/cache
 *.pcapng
 *.pcap
 /tmp
+
+# python tools
+__pycache__/
+*.pyc
