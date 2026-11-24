@@ -12,7 +12,7 @@ MultiDeck is built in small, testable steps. This page records what is done, wha
 | Rendering | Done | SVG icons, system fonts, BMP, JPEG, PNG, raw RGBA |
 | Localization | Done | English and Brazilian Portuguese |
 | Elgato USB adapter | Implemented | Model detection, images, keys, encoders and touch; hardware validation pending |
-| Stream Deck Mobile adapter | Research | Protocol, pairing and licensing questions open |
+| Stream Deck Mobile adapter | Protocol mapped | VSD2 WebSocket, mDNS and protobuf messages found; field numbers and auth secret pending |
 | Mirabox and Ajazz adapter | Planned | Shared HID protocol with a model table |
 | Delay scheduling | Done | Multi actions wait between steps without blocking the interface |
 | Profile sync | Done | A directory watcher reloads profiles edited outside the app |
@@ -37,16 +37,18 @@ Acceptance: a Stream Deck MK.2 shows the active page and runs a hotkey, and a St
 
 These are small changes that make the existing feature set comfortable before more hardware lands.
 
-## Research: Stream Deck Mobile
+## Next after hardware: Stream Deck Mobile
 
-The adapter does not exist. The research must answer four questions before code starts:
+The protocol is mapped from the shipped desktop app: a plain WebSocket VSD2 server on mDNS `_vstreamdeck2._tcp`, protobuf messages in the `vsd2` package, an application level `Authenticate` exchange and a locally generated pairing QR. See the protocol record at `docs/research/sdmobile-protocol.md`.
 
-1. Which steps of pairing happen on the local network and which require the vendor service.
-2. The image format, size and update cadence the mobile app expects.
-3. How input events are delivered and acknowledged, including touch and swipe.
-4. Whether the vendor terms permit a third party host, and under which conditions.
+Four unknowns remain, and one captured pairing session with the phone on a PC hotspot closes all of them:
 
-If an answer makes a compatible adapter impossible, the research is still useful: it documents the constraint instead of leaving a half written crate in the tree.
+1. Protobuf field numbers and the WebSocket envelope.
+2. The content of `Authenticate` and where its secret comes from.
+3. The meaning of the QR parameters and whether the vendor cloud is contacted.
+4. The image and input message details for keys, dials and touch.
+
+Then the adapter is written, not researched: mDNS advertisement, a WebSocket server, `prost` messages and the image pipeline.
 
 ## Later: Mirabox and Ajazz
 

@@ -1,3 +1,7 @@
+> The installer is a per-machine MSI. `scripts/fetch-streamdeck.ps1` downloads it and
+> extracts the payload with an administrative install (`msiexec /a`), so no system
+> state changes. The extracted app can be started in place for live observations.
+
 # Capture playbook: Stream Deck desktop to Stream Deck Mobile
 
 Status as of 2026-11-24: **nothing has been captured yet.** This document is a

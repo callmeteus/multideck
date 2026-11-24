@@ -48,7 +48,7 @@ MultiDeck hosts several kinds of stream deck behind one architecture: one profil
 | --- | --- | --- |
 | Virtual deck | In process | Available |
 | Elgato Stream Deck (USB) | USB HID | Implemented, awaiting hardware validation |
-| Stream Deck Mobile | Network | Research |
+| Stream Deck Mobile | Network | Protocol mapped, adapter next |
 | Mirabox and Ajazz | USB HID | Planned |
 
 The [devices guide](docs/guide/devices.md) explains the contract and what each adapter still needs.
@@ -177,7 +177,7 @@ The workspace layout, the recipe for a new action, the checklist for a new adapt
 
 - Validate the Elgato USB adapter on real MK.2, XL and Plus hardware, including replug.
 - Add a visual multi action editor for the `multi` action.
-- Answer the Stream Deck Mobile research questions, then decide on an adapter.
+- Write the Stream Deck Mobile adapter from the mapped VSD2 protocol, starting with one captured pairing session.
 - Add the Mirabox and Ajazz adapter with a shared model table.
 - Publish Windows and Linux packages.
 

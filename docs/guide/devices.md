@@ -8,7 +8,7 @@ A device is anything that can show a grid of keys and report presses. MultiDeck 
 | --- | --- | --- | --- |
 | Virtual deck | In process | Available | 5x3 keys, RGBA images, always present |
 | Elgato Stream Deck (USB) | USB HID | Implemented, needs hardware validation | Detects the model, sends images and forwards keys, encoders and touch |
-| Stream Deck Mobile | Network | Research | Protocol and pairing flow not implemented |
+| Stream Deck Mobile | Network | Protocol mapped | VSD2 WebSocket and protobuf schema located; adapter not written |
 | Mirabox and Ajazz decks | USB HID | Planned | Same protocol family as the Mirajazz project |
 
 The devices screen lists what the current build can drive. It does not list planned adapters, so an empty hardware section means the build has no hardware adapter compiled in.
@@ -102,18 +102,13 @@ The `multideck-device-elgato` adapter targets the official USB HID decks and is 
 
 The adapter lives in its own crate and is compiled into the desktop build when ready. No HID permissions are requested until the adapter is enabled.
 
-## Stream Deck Mobile (research)
+## Stream Deck Mobile (protocol mapped)
 
-Stream Deck Mobile is the official phone and tablet app. It is not a USB device: the phone and the desktop have to find each other and exchange images and input over the local network, and the app uses Elgato's own account and pairing service.
+Stream Deck Mobile is the official phone and tablet app. It is not a USB device: the phone and the desktop find each other over the local network and exchange images and input there.
 
-The research phase is limited to answering:
+The desktop app hosts a **VSD2** server: plain WebSocket, advertised with mDNS `_vstreamdeck2._tcp`, speaking protobuf messages in the `vsd2` package. Pairing is an application level exchange (`Authenticate`), and the QR code is generated locally with a token. The full message list, the handshake and the open questions are in the protocol record at `docs/research/sdmobile-protocol.md` in the repository.
 
-- Which discovery and pairing steps happen locally, and which require the vendor service.
-- What image format and size the app expects for a key.
-- How input events are delivered and acknowledged.
-- What the vendor terms allow for a third party host.
-
-No `devices/sdmobile` crate exists yet. Until those questions have answers, the roadmap keeps the adapter in research rather than in progress.
+No `devices/sdmobile` crate exists yet. The remaining work is to close four unknowns with one captured pairing session, then implement the server with `tokio-tungstenite` and `prost`.
 
 ## Mirabox and Ajazz (planned)
 
