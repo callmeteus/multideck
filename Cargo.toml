@@ -5,6 +5,7 @@ members = [
   "packages/libs/actions",
   "packages/libs/core",
   "packages/libs/devices/api",
+  "packages/libs/devices/elgato",
   "packages/libs/devices/virtual",
   "packages/libs/events",
   "packages/libs/i18n",
@@ -33,6 +34,7 @@ multideck-actions = { path = "packages/libs/actions" }
 multideck-platform = { path = "packages/libs/platform" }
 multideck-ui = { path = "packages/libs/ui" }
 multideck-device-api = { path = "packages/libs/devices/api" }
+multideck-device-elgato = { path = "packages/libs/devices/elgato" }
 multideck-device-virtual = { path = "packages/libs/devices/virtual" }
 
 async-trait = "0.1"

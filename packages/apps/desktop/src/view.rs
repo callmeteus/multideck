@@ -45,8 +45,17 @@ fn section(title: impl ToString) -> Element<'static, Message> {
 }
 
 fn sidebar(app: &App) -> Element<'_, Message> {
-    let device = tr!("devices_virtual");
-    let model = tr!("devices_virtual_model");
+    let is_virtual = app.device_descriptor.transport == multideck_core::Transport::Virtual;
+    let device = if is_virtual {
+        tr!("devices_virtual")
+    } else {
+        app.device_descriptor.name.clone()
+    };
+    let model = if is_virtual {
+        tr!("devices_virtual_model")
+    } else {
+        app.device_descriptor.model.clone()
+    };
     let connected = tr!("devices_connected");
 
     let mut profile_buttons: Vec<Element<'_, Message>> = Vec::new();
@@ -189,7 +198,7 @@ fn grid(app: &App) -> Element<'_, Message> {
         text(format!(
             "{}: {}",
             tr!("devices_transport"),
-            tr!("devices_virtual")
+            app.device_descriptor.name
         ))
         .size(10)
         .color(Colors::MUTED),

@@ -7,7 +7,8 @@ use std::time::Duration;
 use iced::Task;
 use iced::widget::image::Handle as ImageHandle;
 use multideck_actions::{self as actions, Effect};
-use multideck_core::{ActionInstance, DeviceCaps, DeviceCommand, Profile};
+use multideck_core::{ActionInstance, DeviceCaps, DeviceCommand, DeviceDescriptor, Profile};
+use multideck_device_api::DeviceAdapter;
 use multideck_device_virtual::VirtualDeck;
 use multideck_events::{AppEvent, ConnectedDevice, EventBus};
 use multideck_i18n::{self as i18n, Locale};
@@ -81,15 +82,18 @@ pub struct App {
     pub(crate) key_images: Vec<Option<ImageHandle>>,
     pub(crate) status: String,
     pub(crate) data_dir: PathBuf,
+    pub(crate) device_descriptor: DeviceDescriptor,
     pending_effects: VecDeque<Effect>,
     watcher: Option<ProfileWatcher>,
+    #[cfg(windows)]
+    tray: Option<std::sync::mpsc::Receiver<crate::tray::TrayCommand>>,
     #[allow(dead_code)]
     runtime: tokio::runtime::Runtime,
     store: Store,
     renderer: KeyRenderer,
     bus: EventBus,
     events: broadcast::Receiver<AppEvent>,
-    deck: VirtualDeck,
+    deck: Option<VirtualDeck>,
     #[allow(dead_code)]
     device: ConnectedDevice,
 }
@@ -123,7 +127,34 @@ impl App {
             .map_err(|error| format!("tokio runtime: {error}"))?;
 
         let mut store = Store::open().map_err(|error| error.to_string())?;
-        let caps = DeviceCaps::default();
+
+        let force_virtual = std::env::var("MULTIDECK_DEVICE")
+            .map(|value| value.eq_ignore_ascii_case("virtual"))
+            .unwrap_or(false);
+
+        let detected = if force_virtual {
+            Vec::new()
+        } else {
+            multideck_device_elgato::discover()
+        };
+
+        let (descriptor, deck, adapter): (
+            DeviceDescriptor,
+            Option<VirtualDeck>,
+            Box<dyn DeviceAdapter>,
+        ) = match detected.into_iter().next() {
+            Some(found) => {
+                let descriptor = found.descriptor.clone();
+                (descriptor, None, Box::new(found.into_adapter()))
+            }
+            None => {
+                let (deck, adapter) = VirtualDeck::new();
+                let descriptor = deck.descriptor().clone();
+                (descriptor, Some(deck), Box::new(adapter))
+            }
+        };
+
+        let caps = descriptor.caps.clone();
         let fresh = store.settings().active_profile.is_none();
         let mut profile = store
             .ensure_profile(&caps)
@@ -143,10 +174,9 @@ impl App {
         i18n::set_locale(locale);
 
         let renderer = KeyRenderer::new();
-        let (deck, adapter) = VirtualDeck::new();
         let bus = EventBus::new();
         let events = bus.subscribe();
-        let device = multideck_events::connect(Box::new(adapter), &bus, runtime.handle());
+        let device = multideck_events::connect(adapter, &bus, runtime.handle());
 
         let profiles = store.list_profiles().unwrap_or_default();
         let data_dir = store.paths().root().to_path_buf();
@@ -155,6 +185,8 @@ impl App {
             Ok("settings") => Screen::Settings,
             _ => Screen::Editor,
         };
+        #[cfg(windows)]
+        let tray = crate::tray::spawn();
 
         Ok(Self {
             screen,
@@ -168,8 +200,11 @@ impl App {
             key_images: Vec::new(),
             status,
             data_dir,
+            device_descriptor: descriptor,
             pending_effects: VecDeque::new(),
             watcher: store.watch_profiles().ok(),
+            #[cfg(windows)]
+            tray,
             runtime,
             store,
             renderer,
@@ -207,6 +242,12 @@ impl App {
                 self.drain_events();
                 if self.watcher.as_ref().is_some_and(ProfileWatcher::changed) {
                     self.reload_from_disk();
+                }
+                #[cfg(windows)]
+                if let Some(receiver) = &self.tray
+                    && receiver.try_recv().is_ok()
+                {
+                    return iced::window::latest().and_then(iced::window::gain_focus);
                 }
             }
             Message::SelectKey(key) => {
@@ -432,7 +473,9 @@ impl App {
     }
 
     fn press(&mut self, key: u8) -> Task<Message> {
-        self.deck.press(key);
+        if let Some(deck) = &self.deck {
+            deck.press(key);
+        }
         let Some(action) = self.profile.slot(key).and_then(|slot| slot.action.clone()) else {
             return Task::none();
         };

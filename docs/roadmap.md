@@ -11,22 +11,22 @@ MultiDeck is built in small, testable steps. This page records what is done, wha
 | Native actions | Done | Ten actions with typed settings |
 | Rendering | Done | SVG icons, system fonts, BMP, JPEG, PNG, raw RGBA |
 | Localization | Done | English and Brazilian Portuguese |
-| Elgato USB adapter | In progress | HID enumeration, input reports, image encoding |
+| Elgato USB adapter | Implemented | Model detection, images, keys, encoders and touch; hardware validation pending |
 | Stream Deck Mobile adapter | Research | Protocol, pairing and licensing questions open |
 | Mirabox and Ajazz adapter | Planned | Shared HID protocol with a model table |
 | Delay scheduling | Done | Multi actions wait between steps without blocking the interface |
 | Profile sync | Done | A directory watcher reloads profiles edited outside the app |
 | Installers and packages | Partial | Windows installer via `scripts/build-installer.ps1`; Linux packages planned |
 
-## Next: finish the Elgato adapter
+## Next: validate the Elgato adapter
 
-1. Enumerate connected decks and map each model to `DeviceCaps`.
-2. Read key, encoder and touch strip reports.
-3. Encode key images at the format each generation expects.
-4. Recover from unplug and replug without restarting the app.
-5. Add a device selector to the interface so profiles can target one deck.
+1. Connect a MK.2, an XL and a Plus and confirm the reported grid and image size.
+2. Run a hotkey, a media action and a page jump from the hardware.
+3. Turn an encoder and touch the strip on the Plus.
+4. Unplug and replug: the app should report the disconnect and reconnect on the next launch.
+5. Add a device selector so profiles can target one deck when several are attached.
 
-Acceptance: a Stream Deck MK.2 shows the active page, runs a hotkey, and survives a USB reconnect.
+Acceptance: a Stream Deck MK.2 shows the active page and runs a hotkey, and a Stream Deck + reports encoder and touch input.
 
 ## Then: scheduling and editor depth
 

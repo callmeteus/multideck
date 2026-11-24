@@ -5,6 +5,8 @@
 
 mod app;
 mod seed;
+#[cfg(windows)]
+mod tray;
 mod view;
 
 pub use app::App;

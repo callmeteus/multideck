@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=MultiDeck
+GenericName=Stream deck controller
+Comment=Control apps and workflows from a virtual or USB stream deck
+Exec=multideck
+Icon=multideck
+Terminal=false
+Categories=Utility;
+Keywords=stream deck;hotkey;macro;controller;
+StartupWMClass=multideck

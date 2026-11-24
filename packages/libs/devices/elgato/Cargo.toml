@@ -1,0 +1,19 @@
+[package]
+name = "multideck-device-elgato"
+description = "Elgato Stream Deck USB adapter for MultiDeck"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+multideck-core.workspace = true
+multideck-device-api.workspace = true
+async-trait.workspace = true
+elgato-streamdeck = "0.14"
+image.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true

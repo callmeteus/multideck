@@ -20,6 +20,8 @@ MultiDeck hosts several kinds of stream deck behind one architecture: one profil
 
 - **Device adapters**: every deck implements the same `DeviceAdapter` trait and reports its own grid, encoders, touch strip and image format.
 - **Virtual deck**: a 5x3 in process deck that follows the same command and input path as hardware.
+- **USB decks**: Elgato Stream Deck detection, key images, encoders and touch through the same adapter contract.
+- **Tray icon** on Windows: bring the window back or quit without hunting for the taskbar.
 - **Profiles, pages and keys**: plain JSON profiles with multiple pages and per-profile brightness.
 - **Ten native actions**: hotkey, open, text, media, command, delay, multi action, page jump, profile switch and brightness.
 - **Auto-discovered actions**: actions register at compile time with `inventory`; there is no central list to edit.
@@ -45,7 +47,7 @@ MultiDeck hosts several kinds of stream deck behind one architecture: one profil
 | Device | Transport | State |
 | --- | --- | --- |
 | Virtual deck | In process | Available |
-| Elgato Stream Deck (USB) | USB HID | In progress |
+| Elgato Stream Deck (USB) | USB HID | Implemented, awaiting hardware validation |
 | Stream Deck Mobile | Network | Research |
 | Mirabox and Ajazz | USB HID | Planned |
 
@@ -173,7 +175,7 @@ The workspace layout, the recipe for a new action, the checklist for a new adapt
 
 ## Roadmap
 
-- Finish the Elgato USB adapter: enumeration, input reports, image encoding, reconnect.
+- Validate the Elgato USB adapter on real MK.2, XL and Plus hardware, including replug.
 - Add a visual multi action editor for the `multi` action.
 - Answer the Stream Deck Mobile research questions, then decide on an adapter.
 - Add the Mirabox and Ajazz adapter with a shared model table.

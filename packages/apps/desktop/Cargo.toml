@@ -17,6 +17,7 @@ path = "src/main.rs"
 multideck-actions.workspace = true
 multideck-core.workspace = true
 multideck-device-api.workspace = true
+multideck-device-elgato.workspace = true
 multideck-device-virtual.workspace = true
 multideck-events.workspace = true
 multideck-i18n.workspace = true
@@ -36,3 +37,10 @@ tempfile.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 iced = { workspace = true, features = ["x11", "wayland"] }
+
+[target.'cfg(windows)'.dependencies]
+tray-icon = "0.26"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+] }

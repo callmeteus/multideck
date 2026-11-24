@@ -7,7 +7,7 @@ A device is anything that can show a grid of keys and report presses. MultiDeck 
 | Device | Transport | State | Notes |
 | --- | --- | --- | --- |
 | Virtual deck | In process | Available | 5x3 keys, RGBA images, always present |
-| Elgato Stream Deck (USB) | USB HID | In progress | First hardware adapter; model table drives capabilities |
+| Elgato Stream Deck (USB) | USB HID | Implemented, needs hardware validation | Detects the model, sends images and forwards keys, encoders and touch |
 | Stream Deck Mobile | Network | Research | Protocol and pairing flow not implemented |
 | Mirabox and Ajazz decks | USB HID | Planned | Same protocol family as the Mirajazz project |
 
@@ -91,9 +91,9 @@ The supervisor in `multideck-events` forwards each input to the application bus 
 
 An adapter that loses its device mid session should return a `DeviceError::Failed` with a human readable reason. The application keeps running and the profile stays intact.
 
-## Elgato USB (in progress)
+## Elgato USB
 
-The Elgato adapter targets the official USB HID decks. The work in progress covers:
+The `multideck-device-elgato` adapter targets the official USB HID decks and is compiled into the desktop app. On Windows it is used automatically when a deck is attached; set `MULTIDECK_DEVICE=virtual` to force the virtual deck. What the adapter covers:
 
 - Enumerating supported models and mapping each one to a `DeviceCaps` entry.
 - Reading key, encoder and touch strip input reports.
