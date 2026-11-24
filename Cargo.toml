@@ -1,0 +1,74 @@
+[workspace]
+resolver = "3"
+members = [
+  "packages/apps/desktop",
+  "packages/libs/actions",
+  "packages/libs/core",
+  "packages/libs/devices/api",
+  "packages/libs/devices/virtual",
+  "packages/libs/events",
+  "packages/libs/i18n",
+  "packages/libs/platform",
+  "packages/libs/render",
+  "packages/libs/store",
+  "packages/libs/ui",
+  "packages/tools/probe",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+authors = ["MultiDeck contributors"]
+repository = "https://github.com/callmeteus/multideck"
+
+[workspace.dependencies]
+multideck-core = { path = "packages/libs/core" }
+multideck-events = { path = "packages/libs/events" }
+multideck-render = { path = "packages/libs/render" }
+multideck-store = { path = "packages/libs/store" }
+multideck-i18n = { path = "packages/libs/i18n" }
+multideck-actions = { path = "packages/libs/actions" }
+multideck-platform = { path = "packages/libs/platform" }
+multideck-ui = { path = "packages/libs/ui" }
+multideck-device-api = { path = "packages/libs/devices/api" }
+multideck-device-virtual = { path = "packages/libs/devices/virtual" }
+
+async-trait = "0.1"
+dirs = "7"
+enigo = "0.6"
+fluent-templates = "0.15"
+fontdb = "0.24"
+iced = { version = "0.14", default-features = false, features = ["tiny-skia", "image", "svg", "advanced", "tokio"] }
+image = "0.25"
+inventory = "0.3"
+notify = "9"
+open = "5"
+resvg = "0.50"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sys-locale = "0.3"
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+toml = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+unic-langid = "0.9"
+usvg = "0.50"
+uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+# Keep the build directory small: debug info and incremental artifacts are the
+# biggest contributors and this machine has little free disk.
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.dev.build-override]
+debug = 0

@@ -1,0 +1,15 @@
+[package]
+name = "multideck-ui"
+description = "Theme, colors and reusable widgets for the MultiDeck desktop app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+iced.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+iced = { workspace = true, features = ["x11", "wayland"] }

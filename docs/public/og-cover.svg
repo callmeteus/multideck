@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-labelledby="multideck-cover-title">
+  <title id="multideck-cover-title">MultiDeck, one deck for any device</title>
+  <defs>
+    <linearGradient id="md-c-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12151b"/>
+      <stop offset="0.55" stop-color="#0e1014"/>
+      <stop offset="1" stop-color="#0b0d11"/>
+    </linearGradient>
+    <linearGradient id="md-c-panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b1f27"/>
+      <stop offset="1" stop-color="#11141a"/>
+    </linearGradient>
+    <linearGradient id="md-c-key" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#272c36"/>
+      <stop offset="1" stop-color="#191d25"/>
+    </linearGradient>
+    <linearGradient id="md-c-accent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7fa5ff"/>
+      <stop offset="1" stop-color="#4a78f0"/>
+    </linearGradient>
+    <radialGradient id="md-c-glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#5c8bff" stop-opacity="0.30"/>
+      <stop offset="0.6" stop-color="#5c8bff" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#5c8bff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="md-c-accent-key" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7fa5ff"/>
+      <stop offset="1" stop-color="#4a78f0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#md-c-bg)"/>
+  <circle cx="1010" cy="120" r="520" fill="url(#md-c-glow)"/>
+  <circle cx="120" cy="600" r="360" fill="url(#md-c-glow)"/>
+
+  <rect x="24" y="24" width="1152" height="582" rx="28" fill="none" stroke="#232833" stroke-width="1.5"/>
+
+  <g transform="translate(72 68) scale(0.64)">
+    <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#md-c-panel)"/>
+    <rect x="4.75" y="4.75" width="118.5" height="118.5" rx="27.25" fill="none" stroke="#3b4352" stroke-width="1.5"/>
+    <g stroke-width="1.2">
+      <rect x="20" y="36" width="24" height="24" rx="7" fill="url(#md-c-accent-key)" stroke="#a9c3ff"/>
+      <rect x="52" y="36" width="24" height="24" rx="7" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="84" y="36" width="24" height="24" rx="7" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="20" y="68" width="24" height="24" rx="7" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="52" y="68" width="24" height="24" rx="7" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="84" y="68" width="24" height="24" rx="7" fill="url(#md-c-key)" stroke="#38404d"/>
+    </g>
+  </g>
+
+  <text x="168" y="128" fill="#edf1f6" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="38" font-weight="700" letter-spacing="-0.8">MultiDeck</text>
+  <text x="169" y="154" fill="#8f98a7" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="600" letter-spacing="2.6">STREAM DECK SOFTWARE FOR EVERY DEVICE</text>
+
+  <text x="72" y="304" fill="#edf1f6" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="72" font-weight="700" letter-spacing="-2.2">Your deck, any device.</text>
+  <text x="74" y="358" fill="#a9b3c2" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="24">One desktop app for Windows and Linux, one profile format,</text>
+  <text x="74" y="392" fill="#a9b3c2" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="24">and one adapter layer behind every stream deck.</text>
+
+  <g font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="16" font-weight="600" fill="#c9d2df">
+    <rect x="74" y="438" width="118" height="40" rx="20" fill="#1a1e26" stroke="#2e333e"/>
+    <text x="97" y="464">Hotkeys</text>
+    <rect x="204" y="438" width="104" height="40" rx="20" fill="#1a1e26" stroke="#2e333e"/>
+    <text x="227" y="464">Actions</text>
+    <rect x="320" y="438" width="110" height="40" rx="20" fill="#1a1e26" stroke="#2e333e"/>
+    <text x="342" y="464">Profiles</text>
+    <rect x="442" y="438" width="92" height="40" rx="20" fill="#1a1e26" stroke="#2e333e"/>
+    <text x="464" y="464">Pages</text>
+    <rect x="546" y="438" width="118" height="40" rx="20" fill="#1a1e26" stroke="#2e333e"/>
+    <text x="568" y="464">USB + virtual</text>
+  </g>
+
+  <text x="74" y="564" fill="#8f98a7" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="18">github.com/callmeteus/multideck</text>
+  <text x="1126" y="564" text-anchor="end" fill="#5f6b7c" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="18">MIT licensed</text>
+
+  <g transform="translate(704 176)">
+    <rect x="0" y="0" width="424" height="278" rx="28" fill="url(#md-c-panel)" stroke="#333a46" stroke-width="1.5"/>
+    <g stroke-width="1.4">
+      <rect x="24" y="24" width="70" height="70" rx="16" fill="url(#md-c-accent)" stroke="#a9c3ff"/>
+      <rect x="106" y="24" width="70" height="70" rx="16" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="188" y="24" width="70" height="70" rx="16" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="270" y="24" width="70" height="70" rx="16" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="352" y="24" width="48" height="70" rx="16" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="24" y="106" width="70" height="70" rx="16" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="106" y="106" width="70" height="70" rx="16" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="188" y="106" width="70" height="70" rx="16" fill="url(#md-c-accent)" stroke="#a9c3ff"/>
+      <rect x="270" y="106" width="70" height="70" rx="16" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="352" y="106" width="48" height="70" rx="16" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="24" y="188" width="70" height="70" rx="16" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="106" y="188" width="70" height="70" rx="16" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="188" y="188" width="70" height="70" rx="16" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="270" y="188" width="70" height="70" rx="16" fill="url(#md-c-key)" stroke="#38404d"/>
+      <rect x="352" y="188" width="48" height="70" rx="16" fill="url(#md-c-key)" stroke="#38404d"/>
+    </g>
+    <g fill="#dfe6f2" fill-opacity="0.75">
+      <path d="M52 46 l18 13 -18 13 z" fill="#0e1014" fill-opacity="0.55"/>
+      <rect x="132" y="52" width="18" height="4" rx="2" fill="#5f6b7c"/>
+      <rect x="132" y="62" width="26" height="4" rx="2" fill="#5f6b7c"/>
+      <path d="M300 54 h22 v4 h-22 z M316 48 l8 8 -8 8" fill="none" stroke="#5f6b7c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="223" cy="134" r="15" fill="#0e1014" fill-opacity="0.45"/>
+      <path d="M214 134 h18 M223 125 v18" stroke="#dce7ff" stroke-width="4" stroke-linecap="round"/>
+      <rect x="48" y="212" width="22" height="22" rx="5" fill="none" stroke="#5f6b7c" stroke-width="3"/>
+      <path d="M128 216 v14 h22" fill="none" stroke="#5f6b7c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M212 222 a10 10 0 1 0 10 -10" fill="none" stroke="#5f6b7c" stroke-width="3" stroke-linecap="round"/>
+      <rect x="286" y="212" width="34" height="4" rx="2" fill="#5f6b7c"/>
+      <rect x="286" y="222" width="22" height="4" rx="2" fill="#5f6b7c"/>
+    </g>
+  </g>
+</svg>

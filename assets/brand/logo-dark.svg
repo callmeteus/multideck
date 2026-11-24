@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 128" width="420" height="128" role="img" aria-labelledby="multideck-logo-dark-title">
+  <title id="multideck-logo-dark-title">MultiDeck, dark ink variant for light backgrounds</title>
+  <defs>
+    <linearGradient id="md-d-panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#f4f6fa"/>
+    </linearGradient>
+    <linearGradient id="md-d-key" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7f9fc"/>
+      <stop offset="1" stop-color="#e8ecf3"/>
+    </linearGradient>
+    <linearGradient id="md-d-accent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5c8bff"/>
+      <stop offset="1" stop-color="#3f63c9"/>
+    </linearGradient>
+    <radialGradient id="md-d-glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#5c8bff" stop-opacity="0.30"/>
+      <stop offset="0.6" stop-color="#5c8bff" stop-opacity="0.09"/>
+      <stop offset="1" stop-color="#5c8bff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <g transform="translate(10 8)">
+    <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#md-d-panel)"/>
+    <rect x="4.75" y="4.75" width="118.5" height="118.5" rx="27.25" fill="none" stroke="#ccd3e0" stroke-width="1.5"/>
+    <circle cx="32" cy="48" r="36" fill="url(#md-d-glow)"/>
+    <g stroke-width="1.2">
+      <rect x="20" y="36" width="24" height="24" rx="7" fill="url(#md-d-accent)" stroke="#2f4da0"/>
+      <rect x="52" y="36" width="24" height="24" rx="7" fill="url(#md-d-key)" stroke="#c3cad7"/>
+      <rect x="84" y="36" width="24" height="24" rx="7" fill="url(#md-d-key)" stroke="#c3cad7"/>
+      <rect x="20" y="68" width="24" height="24" rx="7" fill="url(#md-d-key)" stroke="#c3cad7"/>
+      <rect x="52" y="68" width="24" height="24" rx="7" fill="url(#md-d-key)" stroke="#c3cad7"/>
+      <rect x="84" y="68" width="24" height="24" rx="7" fill="url(#md-d-key)" stroke="#c3cad7"/>
+    </g>
+    <rect x="25" y="41" width="14" height="1.6" rx="0.8" fill="#ffffff" fill-opacity="0.45"/>
+  </g>
+
+  <text x="152" y="70" fill="#0e1014" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="50" font-weight="700" letter-spacing="-1.2">MultiDeck</text>
+  <text x="153" y="100" fill="#5b6472" font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="600" letter-spacing="3.1">ONE DECK, ANY DEVICE.</text>
+</svg>

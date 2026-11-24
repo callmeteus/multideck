@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-labelledby="multideck-mark-title">
+  <title id="multideck-mark-title">MultiDeck symbol</title>
+  <defs>
+    <linearGradient id="md-panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b1f27"/>
+      <stop offset="1" stop-color="#11141a"/>
+    </linearGradient>
+    <linearGradient id="md-key" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#272c36"/>
+      <stop offset="1" stop-color="#191d25"/>
+    </linearGradient>
+    <linearGradient id="md-accent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7fa5ff"/>
+      <stop offset="1" stop-color="#4a78f0"/>
+    </linearGradient>
+    <radialGradient id="md-glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#5c8bff" stop-opacity="0.55"/>
+      <stop offset="0.55" stop-color="#5c8bff" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#5c8bff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#md-panel)"/>
+  <rect x="4.75" y="4.75" width="118.5" height="118.5" rx="27.25" fill="none" stroke="#3b4352" stroke-width="1.5"/>
+
+  <circle cx="32" cy="48" r="36" fill="url(#md-glow)"/>
+
+  <g stroke-width="1.2">
+    <rect x="20" y="36" width="24" height="24" rx="7" fill="url(#md-accent)" stroke="#a9c3ff"/>
+    <rect x="52" y="36" width="24" height="24" rx="7" fill="url(#md-key)" stroke="#38404d"/>
+    <rect x="84" y="36" width="24" height="24" rx="7" fill="url(#md-key)" stroke="#38404d"/>
+    <rect x="20" y="68" width="24" height="24" rx="7" fill="url(#md-key)" stroke="#38404d"/>
+    <rect x="52" y="68" width="24" height="24" rx="7" fill="url(#md-key)" stroke="#38404d"/>
+    <rect x="84" y="68" width="24" height="24" rx="7" fill="url(#md-key)" stroke="#38404d"/>
+  </g>
+
+  <rect x="25" y="41" width="14" height="1.6" rx="0.8" fill="#ffffff" fill-opacity="0.28"/>
+</svg>

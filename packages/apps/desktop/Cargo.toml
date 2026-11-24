@@ -1,0 +1,38 @@
+[package]
+name = "multideck-desktop"
+description = "MultiDeck desktop application"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+default-run = "multideck"
+
+[[bin]]
+name = "multideck"
+path = "src/main.rs"
+
+[dependencies]
+multideck-actions.workspace = true
+multideck-core.workspace = true
+multideck-device-api.workspace = true
+multideck-device-virtual.workspace = true
+multideck-events.workspace = true
+multideck-i18n.workspace = true
+multideck-render.workspace = true
+multideck-store.workspace = true
+multideck-ui.workspace = true
+iced.workspace = true
+image.workspace = true
+open.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+iced = { workspace = true, features = ["x11", "wayland"] }

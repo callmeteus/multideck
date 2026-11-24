@@ -1,0 +1,12 @@
+/target
+/packages/target
+
+# documentation site
+docs/node_modules
+docs/.vitepress/dist
+docs/.vitepress/cache
+
+# local captures and scratch
+*.pcapng
+*.pcap
+/tmp

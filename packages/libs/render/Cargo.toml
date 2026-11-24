@@ -1,0 +1,18 @@
+[package]
+name = "multideck-render"
+description = "Key image rendering for MultiDeck devices and previews"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+multideck-core.workspace = true
+fontdb.workspace = true
+image.workspace = true
+resvg.workspace = true
+thiserror.workspace = true
+usvg.workspace = true
+tracing.workspace = true

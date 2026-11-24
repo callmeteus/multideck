@@ -1,0 +1,20 @@
+[package]
+name = "multideck-actions"
+description = "Built-in actions and the registry that plugins will extend"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+multideck-core.workspace = true
+multideck-i18n.workspace = true
+multideck-platform.workspace = true
+multideck-render.workspace = true
+image.workspace = true
+inventory.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

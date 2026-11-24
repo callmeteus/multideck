@@ -1,0 +1,16 @@
+[package]
+name = "multideck-core"
+description = "Domain model shared by the MultiDeck desktop app and every device adapter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+image.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true

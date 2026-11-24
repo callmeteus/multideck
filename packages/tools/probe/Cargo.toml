@@ -1,0 +1,15 @@
+[package]
+name = "multideck-probe"
+description = "Std-only reconnaissance helper for the Stream Deck Mobile protocol work"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "multideck-probe"
+path = "src/main.rs"
+
+[dependencies]
