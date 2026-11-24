@@ -8,7 +8,7 @@ A device is anything that can show a grid of keys and report presses. MultiDeck 
 | --- | --- | --- | --- |
 | Virtual deck | In process | Available | 5x3 keys, RGBA images, always present |
 | Elgato Stream Deck (USB) | USB HID | Implemented, needs hardware validation | Detects the model, sends images and forwards keys, encoders and touch |
-| Stream Deck Mobile | Network | Protocol mapped | VSD2 WebSocket and protobuf schema located; adapter not written |
+| Stream Deck Mobile | Network | Implemented, experimental | VSD2 WebSocket server, mDNS discovery, pairing and images |
 | Mirabox and Ajazz decks | USB HID | Planned | Same protocol family as the Mirajazz project |
 
 The devices screen lists what the current build can drive. It does not list planned adapters, so an empty hardware section means the build has no hardware adapter compiled in.
@@ -102,13 +102,13 @@ The `multideck-device-elgato` adapter targets the official USB HID decks and is 
 
 The adapter lives in its own crate and is compiled into the desktop build when ready. No HID permissions are requested until the adapter is enabled.
 
-## Stream Deck Mobile (protocol mapped)
+## Stream Deck Mobile (implemented, experimental)
 
 Stream Deck Mobile is the official phone and tablet app. It is not a USB device: the phone and the desktop find each other over the local network and exchange images and input there.
 
-The desktop app hosts a **VSD2** server: plain WebSocket, advertised with mDNS `_vstreamdeck2._tcp`, speaking protobuf messages in the `vsd2` package. Pairing is an application level exchange (`Authenticate`), and the QR code is generated locally with a token. The full message list, the handshake and the open questions are in the protocol record at `docs/research/sdmobile-protocol.md` in the repository.
+MultiDeck hosts a **VSD2** server: a plain WebSocket advertised with mDNS `_vstreamdeck2._tcp`, speaking protobuf messages in the `vsd2` package. Start the desktop with `MULTIDECK_DEVICE=mobile`, choose **Add computer** in the phone app, and the host logs a six digit pairing code. Keys and presses flow through the same profile and action model as any other deck.
 
-No `devices/sdmobile` crate exists yet. The remaining work is to close four unknowns with one captured pairing session, then implement the server with `tokio-tungstenite` and `prost`.
+Current limits: the host trusts the first client automatically (`MULTIDECK_MOBILE_TRUST=0` rejects it), the pairing code is only logged, and the adapter has not been run against a physical phone yet. The protocol record is at `docs/research/sdmobile-protocol.md`.
 
 ## Mirabox and Ajazz (planned)
 

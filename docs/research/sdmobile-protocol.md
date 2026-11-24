@@ -104,25 +104,39 @@ unrelated payload produces a policy violation, not a parse error response, which
 is why the envelope and field numbers must come from the descriptor table or a
 capture rather than from guessing.
 
-### Framing experiments
+### Framing: resolved
 
-The close reason `error parsing message` is produced before any message specific
-logic runs, so the first frame has a framing requirement on top of protobuf. Two
-batches were tried with `scripts/probe-vsd2.py` and a throwaway variant:
+The first probes sent empty or synthetic payloads and the server closed them with
+`error parsing message`. That was a red herring: the server expects the first
+frame to be a valid `ClientMessage` with a `hello` payload, and an empty
+`ClientMessage` is rejected by its state machine before any reply.
 
-- oneof style: field 1 to 16, wire type 2 with an empty submessage, and wire type
-  0 with value 1. All rejected with close 1008.
-- type byte style: a single byte 0 to 16, alone and followed by `08 01`. All
-  rejected with close 1008.
-- length prefixes: `00000000`, `01000000`, `00000001`, `04000000`, alone and
-  before `08 01`. All rejected.
+The breakthrough came from the Android client, not from guessing. The APK ships
+`messages.proto` and `AppSettings.proto`, which contain the full `vsd2` schema
+with field numbers, the `ClientMessage`/`ServerMessage` oneof envelopes, the
+image formats and the pairing semantics. A manual `HelloFromClient` built from
+that schema produced a real `HelloFromServer` with the workstation ID, host name,
+version, protocol version 3, the server public key, `clientNeedsAuthentication`
+and the service endpoints. Confirmed on 7.6.1:
 
-Nothing changed the outcome, and the desktop app stayed alive for the whole scan.
-So the frame is not a bare protobuf message, not a oneof with an empty variant and
-not a four byte length prefix. The next step is to read the parser in Ghidra
-around `onNewWebSocketConnection`, or to capture a real first frame from the
-phone, where the framing, the message type and the auth payload are all visible
-at once.
+```text
+0a 53 ...            ClientMessage.hello
+52 b8 01 ...         ServerMessage.hello (field 10)
+  0a 16 WE1qigCf1de1Iw5uzt8fhg
+  12 0f DESKTOP-0NJ2SSU
+  1a 0b 7.6.1.23033
+  20 03               protocolVersion
+  2a 20 <server key>  publicKey
+  30 01               clientNeedsAuthentication = true
+```
+
+So a WebSocket binary frame is exactly one `ClientMessage` or `ServerMessage`
+protobuf message. No length prefix, no type byte, no extra envelope.
+
+`Authenticate` carries only a `requestID`; the security model is a user
+confirmation of the six hex digits derived from the client public key, not a
+signature exchange. That is why the adapter can implement pairing without a
+vendor service.
 
 ### Message schema (`vsd2` package)
 
@@ -206,27 +220,23 @@ adapter.
 
 ## Open unknowns
 
-| Question | Why it blocks | Cheapest way to close it |
+| Question | Status | Notes |
 |---|---|---|
-| Protobuf field numbers for every message | Cannot serialize or parse without them | Extract the descriptor table from the binary, or capture one session |
-| Envelope of a WebSocket message (bare message, `oneof`, length prefix) | Determines the first byte on the wire | Capture `HelloFromClient` and `HelloFromServer` during pairing |
-| Content of `Authenticate` and where the secret comes from | Decides whether a third party host can pair at all | Capture pairing, then replay with a captured token |
-| Meaning of the QR parameters `t` and `w`, and whether the cloud is contacted | Decides if pairing can be local only | Observe the phone's requests during scan, with the phone on a hotspot |
+| Protobuf field numbers | Resolved | The Android client ships `messages.proto`; the reconstructed schema lives in `packages/libs/devices/sdmobile/proto/vsd2.proto` |
+| WebSocket envelope | Resolved | One binary frame equals one `ClientMessage` / `ServerMessage` |
+| `Authenticate` content and secret | Resolved | Only `requestID`; trust is a user confirmation of the BLAKE2b-derived code, then the key is remembered |
+| QR parameters `t` and `w`, cloud involvement | Partly | Discovery now works over mDNS `_vstreamdeck2._tcp`; the QR path is not needed for a local host and is unused by MultiDeck |
 
 ## Next experiments, in order
 
-1. Put the phone and the PC on a hotspot controlled by the PC, capture with
-   Wireshark, pair, and export the WebSocket streams. The channel is plain
-   `ws://`, so the frames will be readable. This answers all four unknowns at
-   once.
-2. In parallel, import `StreamDeck.exe` in Ghidra with JDK 21 and inspect the
-   functions that reference `vsd2.HelloFromServer`, `Authenticate` and
-   `sodium_init`. The goal is the protobuf descriptor table and the auth code
-   path, not the whole app.
-3. Only then write `packages/libs/devices/sdmobile`: mDNS advertisement, a
-   WebSocket server (`tokio-tungstenite`), `prost` messages generated from the
-   recovered schema, pairing QR, and the image path.
-4. Validate against the real phone before touching profiles or the UI.
+1. Test the implemented adapter with the real phone: run the desktop with
+   `MULTIDECK_DEVICE=mobile`, open Stream Deck Mobile, add the computer, compare
+   the six digit code logged by the host, and confirm that the keys render and
+   that presses run actions.
+2. Capture one pairing session on a PC hotspot to confirm the auto-trust default
+   is acceptable, then replace it with an in-app confirmation dialog.
+3. Only then polish: image format selection, keypad sizes, page requests and
+   shortcuts.
 
 ## Compliance note
 

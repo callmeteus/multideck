@@ -268,6 +268,8 @@ async fn send_snapshot(ws: &mut WebSocketStream<TcpStream>, shared: &Shared, sta
         Ok(latest) => latest.clone(),
         Err(_) => return,
     };
+    let stored = latest.iter().filter(|image| image.is_some()).count();
+    tracing::debug!(keys = latest.len(), stored, "sending the mobile snapshot");
     for (key, image) in latest.iter().enumerate() {
         if let Some(image) = image {
             send_icon(ws, state, key as u8, image).await;
@@ -282,8 +284,10 @@ async fn send_icon(
     source: &RgbaImage,
 ) {
     let Some(image) = encode_icon(source, state) else {
+        tracing::debug!(key, "mobile icon could not be encoded");
         return;
     };
+    tracing::debug!(key, bytes = image.image.len(), "sending mobile icon");
     let reply = proto::ServerMessage {
         payload: Some(proto::server_message::Payload::Icon(proto::Icon {
             index: key as u32,

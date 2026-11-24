@@ -22,6 +22,7 @@ MultiDeck hosts several kinds of stream deck behind one architecture: one profil
 - **Virtual deck**: a 5x3 in process deck that follows the same command and input path as hardware.
 - **USB decks**: Elgato Stream Deck detection, key images, encoders and touch through the same adapter contract.
 - **Tray icon** on Windows: bring the window back or quit without hunting for the taskbar.
+- **Stream Deck Mobile**: run with `MULTIDECK_DEVICE=mobile` to host the VSD2 server, advertise it over mDNS and pair the official phone app.
 - **Profiles, pages and keys**: plain JSON profiles with multiple pages and per-profile brightness.
 - **Drag and drop**: pull an action from the palette onto any key, or press Delete on a selected key; removal always asks for confirmation.
 - **Ten native actions**: hotkey, open, text, media, command, delay, multi action, page jump, profile switch and brightness.
@@ -49,7 +50,7 @@ MultiDeck hosts several kinds of stream deck behind one architecture: one profil
 | --- | --- | --- |
 | Virtual deck | In process | Available |
 | Elgato Stream Deck (USB) | USB HID | Implemented, awaiting hardware validation |
-| Stream Deck Mobile | Network | Protocol mapped, adapter next |
+| Stream Deck Mobile | Network | Implemented, experimental |
 | Mirabox and Ajazz | USB HID | Planned |
 
 The [devices guide](docs/guide/devices.md) explains the contract and what each adapter still needs.
@@ -178,7 +179,7 @@ The workspace layout, the recipe for a new action, the checklist for a new adapt
 
 - Validate the Elgato USB adapter on real MK.2, XL and Plus hardware, including replug.
 - Add a visual multi action editor for the `multi` action.
-- Write the Stream Deck Mobile adapter from the mapped VSD2 protocol, starting with one captured pairing session.
+- Validate the Stream Deck Mobile adapter with a phone and replace the auto-trust default with a pairing confirmation dialog.
 - Add the Mirabox and Ajazz adapter with a shared model table.
 - Publish Windows and Linux packages.
 

@@ -12,7 +12,7 @@ MultiDeck is built in small, testable steps. This page records what is done, wha
 | Rendering | Done | SVG icons, system fonts, BMP, JPEG, PNG, raw RGBA |
 | Localization | Done | English and Brazilian Portuguese |
 | Elgato USB adapter | Implemented | Model detection, images, keys, encoders and touch; hardware validation pending |
-| Stream Deck Mobile adapter | Protocol mapped | VSD2 WebSocket, mDNS and protobuf messages found; field numbers and auth secret pending |
+| Stream Deck Mobile adapter | Implemented, experimental | VSD2 WebSocket, mDNS, protobuf, pairing and key images; needs a real phone pass |
 | Mirabox and Ajazz adapter | Planned | Shared HID protocol with a model table |
 | Delay scheduling | Done | Multi actions wait between steps without blocking the interface |
 | Profile sync | Done | A directory watcher reloads profiles edited outside the app |
@@ -37,18 +37,16 @@ Acceptance: a Stream Deck MK.2 shows the active page and runs a hotkey, and a St
 
 These are small changes that make the existing feature set comfortable before more hardware lands.
 
-## Next after hardware: Stream Deck Mobile
+## Next: Stream Deck Mobile with a real phone
 
-The protocol is mapped from the shipped desktop app: a plain WebSocket VSD2 server on mDNS `_vstreamdeck2._tcp`, protobuf messages in the `vsd2` package, an application level `Authenticate` exchange and a locally generated pairing QR. See the protocol record at `docs/research/sdmobile-protocol.md`.
+The adapter exists in `packages/libs/devices/sdmobile` and is enabled with `MULTIDECK_DEVICE=mobile`. It hosts the VSD2 WebSocket server, advertises `_vstreamdeck2._tcp`, completes the `HelloFromClient` / `HelloFromServer` exchange, answers `Authenticate`, opens a virtual device and streams key images while forwarding presses. The protocol record is at `docs/research/sdmobile-protocol.md`.
 
-Four unknowns remain, and one captured pairing session with the phone on a PC hotspot closes all of them:
+What remains is a real phone pass:
 
-1. Protobuf field numbers and the WebSocket envelope.
-2. The content of `Authenticate` and where its secret comes from.
-3. The meaning of the QR parameters and whether the vendor cloud is contacted.
-4. The image and input message details for keys, dials and touch.
-
-Then the adapter is written, not researched: mDNS advertisement, a WebSocket server, `prost` messages and the image pipeline.
+1. Pair the phone, compare the six digit code logged by the host, and confirm that both sides show the same value.
+2. Replace the auto-trust default with an in-app confirmation dialog.
+3. Check the requested keypad sizes, image formats and page messages against the phone, then adjust the image encoder if the phone asks for LZ4 or LZFSE.
+4. Repeat after a phone sleep and a network change.
 
 ## Later: Mirabox and Ajazz
 

@@ -168,6 +168,7 @@ fn publish_image(shared: &Shared, key: u8, image: Arc<RgbaImage>) {
             return;
         }
     }
+    tracing::debug!(key, "mobile image stored");
     let _ = shared.updates.send((key, image));
 }
 
@@ -181,7 +182,7 @@ fn spawn_mdns(shared: &Arc<Shared>, port: u16) {
             .take(6)
             .collect::<String>()
     );
-    let host = shared.config.hostname.clone();
+    let host = format!("{}.local.", shared.config.hostname.trim_end_matches('.'));
     let properties = [
         ("workstationID", shared.config.workstation_id.as_str()),
         ("version", "3"),
