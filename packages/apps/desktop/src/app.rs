@@ -494,6 +494,11 @@ impl App {
                             .map(|(known, _)| known != &url)
                             .unwrap_or(true);
                         if stale && let Some(handle) = qr_handle(&url) {
+                            tracing::info!(
+                                port = ?mobile.port(),
+                                addresses = ?chosen_addresses,
+                                "mobile pairing QR ready"
+                            );
                             self.qr = Some((url, handle));
                         }
                     }
