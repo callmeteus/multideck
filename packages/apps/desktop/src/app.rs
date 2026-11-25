@@ -470,8 +470,11 @@ impl App {
                             None => i18n::tr!("status_mobile_starting"),
                         };
                         if let Some(port) = port
-                            && self.store.settings().mobile_port != port
+                            && self.store.settings().mobile_port == 0
                         {
+                            // Persist the port chosen on the first run, but not a
+                            // fallback used because the saved port was busy: the
+                            // phone keeps the previous endpoint and would go stale.
                             let _ = self
                                 .store
                                 .update_settings(|settings| settings.mobile_port = port);
