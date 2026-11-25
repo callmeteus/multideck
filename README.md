@@ -1,6 +1,8 @@
 <p align="center">
-  <img src="assets/brand/logo.svg" alt="MultiDeck" width="420">
+  <img src="assets/brand/logo-mark.svg" alt="MultiDeck" width="96" height="96">
 </p>
+
+<h1 align="center">MultiDeck</h1>
 
 <p align="center">
   <strong>One deck, any device.</strong><br>
