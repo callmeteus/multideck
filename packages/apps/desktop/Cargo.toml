@@ -22,6 +22,7 @@ multideck-device-sdmobile.workspace = true
 multideck-device-virtual.workspace = true
 multideck-events.workspace = true
 multideck-i18n.workspace = true
+multideck-platform.workspace = true
 multideck-render.workspace = true
 multideck-store.workspace = true
 multideck-ui.workspace = true

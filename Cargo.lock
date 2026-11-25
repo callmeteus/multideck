@@ -2876,6 +2876,7 @@ dependencies = [
  "multideck-device-virtual",
  "multideck-events",
  "multideck-i18n",
+ "multideck-platform",
  "multideck-render",
  "multideck-store",
  "multideck-ui",
