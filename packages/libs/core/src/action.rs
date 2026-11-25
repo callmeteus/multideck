@@ -40,6 +40,8 @@ pub struct ActionDef {
     pub description_key: &'static str,
     /// Name of the icon in `multideck-render`.
     pub icon: &'static str,
+    /// Search tags, in English and the user's language when useful.
+    pub tags: &'static [&'static str],
     /// Settings exposed in the inspector_
     pub fields: &'static [SettingField],
     /// Translation key for the key title used when the user does not set one.

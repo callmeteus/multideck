@@ -1,0 +1,15 @@
+name: Examples
+actions:
+  - id: example-notepad
+    title: Open Notepad
+    description: Opens Notepad, a small example plugin
+    icon: open
+    tags: [example, notepad, windows]
+    command: notepad
+
+  - id: example-hex-status
+    title: Hex status
+    description: Prints the local Hex status to a file
+    icon: command
+    tags: [example, hex, status, voice]
+    command: hex status --json > "%TEMP%/hex-status.json"

@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 //! Binary entry point.
 
 use multideck_desktop::run;

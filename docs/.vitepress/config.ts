@@ -47,6 +47,7 @@ export default defineConfig({
           { text: 'Devices', link: '/guide/devices' },
           { text: 'Profiles and pages', link: '/guide/profiles' },
           { text: 'Actions', link: '/guide/actions' },
+          { text: 'Plugins', link: '/guide/plugins' },
           { text: 'Language', link: '/guide/language' },
         ],
       },

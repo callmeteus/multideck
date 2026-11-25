@@ -76,11 +76,90 @@ const BRIGHTNESS_FIELDS: &[SettingField] = &[SettingField {
     default: "80",
 }];
 
+const HEX_FIELDS: &[SettingField] = &[
+    SettingField {
+        key: "command",
+        label_key: "field_hex_command",
+        kind: FieldKind::Select(&[
+            "status",
+            "start",
+            "quit",
+            "restart",
+            "dictation start",
+            "dictation stop",
+            "dictation toggle",
+            "dictation cancel",
+            "dictation start --raw",
+            "paste-last",
+            "typed-text",
+            "meetings record",
+            "meetings stop",
+            "meetings copy-last",
+            "meetings list",
+            "meetings search",
+            "settings list",
+            "settings get",
+            "settings set",
+            "model list",
+            "model use",
+            "model install",
+            "model cancel",
+            "model status",
+            "model devices",
+            "model check",
+            "commands init",
+            "commands check",
+            "window show",
+            "window hide",
+            "vocabulary list",
+            "vocabulary add",
+            "vocabulary remove",
+            "history clear --yes",
+            "check-for-updates",
+            "launch-at-login on",
+            "launch-at-login off",
+            "annotate start",
+            "annotate stop",
+            "annotate cancel",
+            "annotate status",
+            "annotate list",
+            "labs",
+            "logs",
+        ]),
+        default: "status",
+    },
+    SettingField {
+        key: "args",
+        label_key: "field_hex_args",
+        kind: FieldKind::Text,
+        default: "",
+    },
+];
+
+const HEX: ActionDef = ActionDef {
+    kind: "hex",
+    label_key: "action_hex",
+    description_key: "action_hex_desc",
+    icon: "command",
+    tags: &[
+        "hex",
+        "voice",
+        "dictation",
+        "transcription",
+        "voz",
+        "ditado",
+        "ia",
+    ],
+    fields: HEX_FIELDS,
+    title_key: "action_hex_title",
+};
+
 const HOTKEY: ActionDef = ActionDef {
     kind: "hotkey",
     label_key: "action_hotkey",
     description_key: "action_hotkey_desc",
     icon: "hotkey",
+    tags: &["keyboard", "hotkey", "shortcut", "atalho", "teclado"],
     fields: HOTKEY_FIELDS,
     title_key: "action_hotkey_title",
 };
@@ -90,6 +169,7 @@ const OPEN: ActionDef = ActionDef {
     label_key: "action_open",
     description_key: "action_open_desc",
     icon: "open",
+    tags: &["open", "url", "file", "system", "abrir", "arquivo"],
     fields: OPEN_FIELDS,
     title_key: "action_open_title",
 };
@@ -99,6 +179,7 @@ const TEXT: ActionDef = ActionDef {
     label_key: "action_text",
     description_key: "action_text_desc",
     icon: "text",
+    tags: &["text", "typing", "keyboard", "texto", "digitar"],
     fields: TEXT_FIELDS,
     title_key: "action_text_title",
 };
@@ -108,6 +189,7 @@ const MEDIA: ActionDef = ActionDef {
     label_key: "action_media",
     description_key: "action_media_desc",
     icon: "media",
+    tags: &["media", "audio", "music", "volume", "midia", "musica"],
     fields: MEDIA_FIELDS,
     title_key: "action_media_title",
 };
@@ -117,6 +199,7 @@ const COMMAND: ActionDef = ActionDef {
     label_key: "action_command",
     description_key: "action_command_desc",
     icon: "command",
+    tags: &["command", "shell", "cli", "system", "comando", "terminal"],
     fields: COMMAND_FIELDS,
     title_key: "action_command_title",
 };
@@ -126,6 +209,7 @@ const DELAY: ActionDef = ActionDef {
     label_key: "action_delay",
     description_key: "action_delay_desc",
     icon: "delay",
+    tags: &["delay", "wait", "flow", "espera", "pausa"],
     fields: DELAY_FIELDS,
     title_key: "action_delay_title",
 };
@@ -135,6 +219,7 @@ const MULTI: ActionDef = ActionDef {
     label_key: "action_multi",
     description_key: "action_multi_desc",
     icon: "multi",
+    tags: &["multi", "sequence", "flow", "sequencia"],
     fields: &[],
     title_key: "action_multi_title",
 };
@@ -144,6 +229,7 @@ const FOLDER: ActionDef = ActionDef {
     label_key: "action_folder",
     description_key: "action_folder_desc",
     icon: "folder",
+    tags: &["page", "folder", "navigation", "pagina", "pasta"],
     fields: FOLDER_FIELDS,
     title_key: "action_folder_title",
 };
@@ -153,6 +239,7 @@ const PROFILE: ActionDef = ActionDef {
     label_key: "action_profile",
     description_key: "action_profile_desc",
     icon: "profile",
+    tags: &["profile", "navigation", "perfil"],
     fields: PROFILE_FIELDS,
     title_key: "action_profile_title",
 };
@@ -162,6 +249,7 @@ const BRIGHTNESS: ActionDef = ActionDef {
     label_key: "action_brightness",
     description_key: "action_brightness_desc",
     icon: "brightness",
+    tags: &["brightness", "device", "brilho", "dispositivo"],
     fields: BRIGHTNESS_FIELDS,
     title_key: "action_brightness_title",
 };
@@ -176,6 +264,19 @@ inventory::submit! { RegisteredAction { def: MULTI, run: run_multi } }
 inventory::submit! { RegisteredAction { def: FOLDER, run: run_folder } }
 inventory::submit! { RegisteredAction { def: PROFILE, run: run_profile } }
 inventory::submit! { RegisteredAction { def: BRIGHTNESS, run: run_brightness } }
+inventory::submit! { RegisteredAction { def: HEX, run: run_hex } }
+
+fn run_hex(instance: &ActionInstance) -> Result<Vec<Effect>, ActionError> {
+    let command = required(instance, "command")?;
+    let args = instance.string("args").unwrap_or("").trim();
+    let line = if args.is_empty() {
+        format!("hex {command}")
+    } else {
+        format!("hex {command} {args}")
+    };
+    multideck_platform::run_command(&line)?;
+    Ok(Vec::new())
+}
 
 fn required<'a>(instance: &'a ActionInstance, field: &str) -> Result<&'a str, ActionError> {
     instance

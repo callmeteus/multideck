@@ -11,7 +11,7 @@ use multideck_core::{
     ActionInstance, DeviceCaps, DeviceCommand, DeviceDescriptor, DeviceInput, Profile,
 };
 use multideck_device_api::DeviceAdapter;
-use multideck_device_sdmobile::{MobileConfig, MobileDeck};
+use multideck_device_sdmobile::{MobileConfig, MobileDeck, NetworkInterface};
 use multideck_device_virtual::VirtualDeck;
 use multideck_events::{AppEvent, ConnectedDevice, EventBus};
 use multideck_i18n::{self as i18n, Locale};
@@ -58,6 +58,30 @@ pub enum Message {
     SelectProfile(String),
     /// Creates a profile.
     NewProfile,
+    /// Opens the context actions for a profile.
+    OpenProfileMenu(String),
+    /// Closes the profile context menu.
+    CloseProfileMenu,
+    /// Tracks the mouse position for the context menu.
+    CursorMoved(f32, f32),
+    /// Filters the action palette.
+    PaletteQuery(String),
+    /// Marks an element as hovered.
+    Hover(String),
+    /// Clears the hovered element.
+    Unhover,
+    /// Closes the profile context dialog.
+    CloseProfileDialog,
+    /// Switches the context dialog to rename mode.
+    StartProfileRename,
+    /// Edits the rename draft.
+    ProfileRenameDraft(String),
+    /// Commits the rename.
+    ConfirmProfileRename,
+    /// Switches the context dialog to delete confirmation.
+    StartProfileDelete,
+    /// Deletes the profile.
+    ConfirmProfileDelete,
     /// Simulates a press on a key.
     PressKey(u8),
     /// Starts dragging an action from the palette.
@@ -76,8 +100,18 @@ pub enum Message {
     Noop,
     /// Trusts the phone waiting for pairing.
     PairAccept,
+    /// Chooses which local address goes into the pairing QR.
+    SelectMobileAddress(String),
     /// Rejects the phone waiting for pairing.
     PairReject,
+    /// Opens the pairing modal.
+    OpenPairing,
+    /// Dismisses the free plan notice.
+    CloseLimitNotice,
+    /// Rebuilds the profile for the free 3x2 mobile grid.
+    ApplyFreeLayout,
+    /// Closes the pairing modal.
+    ClosePairing,
     /// Opens the data directory.
     OpenDataFolder,
     /// Shows the editor screen.
@@ -101,8 +135,23 @@ pub struct App {
     pub(crate) pending_kind: Option<&'static str>,
     pub(crate) dragging: Option<&'static str>,
     pub(crate) pending_delete: Option<u8>,
-    pub(crate) queued_press: VecDeque<u8>,
     pub(crate) pairing_code: Option<String>,
+    pub(crate) qr: Option<(String, ImageHandle)>,
+    pub(crate) show_pairing: bool,
+    pub(crate) mobile_interfaces: Vec<NetworkInterface>,
+    pub(crate) mobile_address: Option<String>,
+    pub(crate) mobile_connected: bool,
+    pub(crate) mobile_pro: Option<bool>,
+    pub(crate) limit_notice: bool,
+    pub(crate) free_layout: bool,
+    pub(crate) profile_menu: Option<String>,
+    pub(crate) menu_pos: Option<(f32, f32)>,
+    pub(crate) cursor: (f32, f32),
+    pub(crate) profile_rename: Option<(String, String)>,
+    pub(crate) profile_delete: Option<String>,
+    pub(crate) queued_press: VecDeque<u8>,
+    pub(crate) palette_query: String,
+    pub(crate) hover: Option<String>,
     pub(crate) inspector: Vec<(String, String)>,
     pub(crate) key_images: Vec<Option<ImageHandle>>,
     pub(crate) status: String,
@@ -188,6 +237,8 @@ impl App {
                 .unwrap_or_else(|_| "multideck".to_string());
             let mut config = MobileConfig::new(workstation_id, hostname);
             config.trust_file = Some(store.paths().root().join("mobile_trusted.txt"));
+            config.key_file = Some(store.paths().root().join("mobile_key.txt"));
+            config.port = store.settings().mobile_port;
             config.auto_trust = std::env::var("MULTIDECK_MOBILE_TRUST")
                 .map(|value| value == "1")
                 .unwrap_or(false);
@@ -206,6 +257,25 @@ impl App {
                     (descriptor, Some(deck), Box::new(adapter), None)
                 }
             }
+        };
+
+        let mobile_interfaces = if mobile.is_some() {
+            multideck_device_sdmobile::interfaces()
+        } else {
+            Vec::new()
+        };
+        let mobile_address = if mobile.is_some() {
+            let saved = store.settings().mobile_address.clone();
+            let still_present = mobile_interfaces
+                .iter()
+                .any(|interface| interface.address == saved);
+            if saved.is_empty() || !still_present {
+                None
+            } else {
+                Some(saved)
+            }
+        } else {
+            None
         };
 
         let caps = descriptor.caps.clone();
@@ -242,6 +312,9 @@ impl App {
         #[cfg(windows)]
         let tray = crate::tray::spawn();
 
+        let open_pairing =
+            std::env::var("MULTIDECK_OPEN_PAIRING").is_ok() && !mobile_interfaces.is_empty();
+
         Ok(Self {
             screen,
             profiles,
@@ -252,8 +325,23 @@ impl App {
             pending_kind: None,
             dragging: None,
             pending_delete: None,
-            queued_press: VecDeque::new(),
             pairing_code: None,
+            qr: None,
+            show_pairing: open_pairing,
+            mobile_interfaces,
+            mobile_address,
+            mobile_connected: false,
+            mobile_pro: None,
+            limit_notice: false,
+            free_layout: store.settings().mobile_free_layout,
+            profile_menu: None,
+            menu_pos: None,
+            cursor: (0.0, 0.0),
+            profile_rename: None,
+            profile_delete: None,
+            queued_press: VecDeque::new(),
+            palette_query: String::new(),
+            hover: None,
             inspector: Vec::new(),
             key_images: Vec::new(),
             status,
@@ -295,6 +383,7 @@ impl App {
     pub fn subscription(&self) -> iced::Subscription<Message> {
         iced::Subscription::batch([
             iced::time::every(Duration::from_millis(250)).map(|_| Message::Poll),
+            iced::event::listen_with(cursor_listener),
             iced::keyboard::listen().map(|event| match event {
                 iced::keyboard::Event::KeyPressed {
                     key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Delete),
@@ -328,6 +417,16 @@ impl App {
                     return iced::window::latest().and_then(iced::window::gain_focus);
                 }
                 if let Some(mobile) = &self.mobile {
+                    self.mobile_connected = mobile.is_connected();
+                    self.mobile_pro = mobile.is_pro();
+                    if self.mobile_pro == Some(false)
+                        && !self.free_layout
+                        && self.store.settings().mobile_free_notice
+                    {
+                        self.limit_notice = true;
+                    } else if self.mobile_pro == Some(true) {
+                        self.limit_notice = false;
+                    }
                     let port = mobile.port();
                     if port != self.mobile_port {
                         self.mobile_port = port;
@@ -338,6 +437,33 @@ impl App {
                             ),
                             None => i18n::tr!("status_mobile_starting"),
                         };
+                        if let Some(port) = port
+                            && self.store.settings().mobile_port != port
+                        {
+                            let _ = self
+                                .store
+                                .update_settings(|settings| settings.mobile_port = port);
+                        }
+                    }
+                    let chosen_addresses: Vec<String> = match &self.mobile_address {
+                        Some(address) => vec![address.clone()],
+                        None => self
+                            .mobile_interfaces
+                            .iter()
+                            .map(|interface| interface.address.clone())
+                            .collect(),
+                    };
+                    if self.pairing_code.is_none()
+                        && let Some(url) = mobile.pairing_url_for(&chosen_addresses)
+                    {
+                        let stale = self
+                            .qr
+                            .as_ref()
+                            .map(|(known, _)| known != &url)
+                            .unwrap_or(true);
+                        if stale && let Some(handle) = qr_handle(&url) {
+                            self.qr = Some((url, handle));
+                        }
                     }
                     let code = mobile.pending_pairing();
                     if code != self.pairing_code {
@@ -345,6 +471,7 @@ impl App {
                         if let Some(code) = &self.pairing_code {
                             self.status =
                                 i18n::tr_args("status_mobile_pairing", &[("code", code.clone())]);
+                            self.show_pairing = true;
                         }
                     }
                 }
@@ -376,6 +503,46 @@ impl App {
                 self.refresh();
             }
             Message::SelectProfile(id) => self.load_profile(&id),
+            Message::OpenProfileMenu(id) => {
+                self.profile_menu = Some(id);
+                self.menu_pos = Some((self.cursor.0, self.cursor.1));
+                self.profile_rename = None;
+                self.profile_delete = None;
+            }
+            Message::CursorMoved(x, y) => self.cursor = (x, y),
+            Message::PaletteQuery(query) => self.palette_query = query,
+            Message::Hover(id) => self.hover = Some(id),
+            Message::Unhover => self.hover = None,
+            Message::CloseProfileMenu => self.profile_menu = None,
+            Message::CloseProfileDialog => {
+                self.profile_menu = None;
+                self.profile_rename = None;
+                self.profile_delete = None;
+            }
+            Message::StartProfileRename => {
+                if let Some(id) = self.profile_menu.take() {
+                    let name = self
+                        .profiles
+                        .iter()
+                        .find(|profile| profile.id == id)
+                        .map(|profile| profile.name.clone())
+                        .or_else(|| (self.profile.id == id).then(|| self.profile.name.clone()))
+                        .unwrap_or_default();
+                    self.profile_rename = Some((id, name));
+                }
+            }
+            Message::ProfileRenameDraft(text) => {
+                if let Some((_, draft)) = &mut self.profile_rename {
+                    *draft = text;
+                }
+            }
+            Message::ConfirmProfileRename => self.confirm_profile_rename(),
+            Message::StartProfileDelete => {
+                if let Some(id) = self.profile_menu.take() {
+                    self.profile_delete = Some(id);
+                }
+            }
+            Message::ConfirmProfileDelete => self.confirm_profile_delete(),
             Message::NewProfile => self.new_profile(),
             Message::PressKey(key) => return self.press(key),
             Message::EffectsReady => return self.resume_pending(),
@@ -399,8 +566,29 @@ impl App {
             Message::Noop => {}
             Message::PairAccept => self.resolve_pairing(true),
             Message::PairReject => self.resolve_pairing(false),
+            Message::OpenPairing => self.show_pairing = true,
+            Message::ClosePairing => self.close_pairing(),
+            Message::CloseLimitNotice => {
+                self.limit_notice = false;
+                let _ = self
+                    .store
+                    .update_settings(|settings| settings.mobile_free_notice = false);
+            }
+            Message::ApplyFreeLayout => self.apply_free_layout(),
+            Message::SelectMobileAddress(address) => {
+                self.mobile_address = Some(address.clone());
+                if let Err(error) = self
+                    .store
+                    .update_settings(|settings| settings.mobile_address = address)
+                {
+                    tracing::warn!(%error, "could not persist the mobile address");
+                }
+                self.qr = None;
+            }
             Message::OpenDataFolder => {
-                if let Err(error) = open::that(&self.data_dir) {
+                if let Err(error) =
+                    multideck_platform::open_target(&self.data_dir.to_string_lossy())
+                {
                     tracing::warn!(%error, "could not open the data folder");
                 }
             }
@@ -471,12 +659,20 @@ impl App {
             mobile.resolve_pairing(accept);
         }
         self.pairing_code = None;
+        self.show_pairing = false;
         self.status = if accept {
             i18n::tr!("status_mobile_paired")
         } else {
             i18n::tr!("status_mobile_rejected")
         };
     }
+    fn close_pairing(&mut self) {
+        if self.pairing_code.is_some() {
+            self.resolve_pairing(false);
+        }
+        self.show_pairing = false;
+    }
+
     fn request_delete(&mut self) {
         let Some(key) = self.selected_key else {
             return;
@@ -581,6 +777,100 @@ impl App {
         self.profile.add_page(name, &caps);
         self.persist();
         self.refresh();
+        self.status = i18n::tr!("status_saved");
+    }
+
+    fn apply_free_layout(&mut self) {
+        // The free app keeps its own 5x3 keypad and only unlocks the first three
+        // keys of the first two rows, so the actions have to land on the real
+        // phone indexes: 0..2 and 5..7. Shrinking our grid to 3x2 put keys on
+        // indexes 3 and 4, which the free app does not accept.
+        const FREE_SLOTS: [usize; 6] = [0, 1, 2, 5, 6, 7];
+        let mut profile = Profile::new(i18n::tr!("profile_free_mobile"), &self.caps);
+        profile.brightness = self.profile.brightness;
+        let source: Vec<_> = self
+            .profile
+            .active_page()
+            .slots
+            .iter()
+            .filter(|slot| !slot.is_empty())
+            .cloned()
+            .collect();
+        for (target, source) in FREE_SLOTS.iter().zip(source) {
+            if let Some(slot) = profile.pages[0].slots.get_mut(*target) {
+                *slot = source;
+            }
+        }
+        if let Err(error) = self.store.save_profile(&profile) {
+            tracing::warn!(%error, "could not create the free mobile profile");
+            self.status = i18n::tr_args("errors_save_failed", &[("reason", error.to_string())]);
+            return;
+        }
+        if let Err(error) = self.store.set_active_profile(&profile.id) {
+            tracing::warn!(%error, "could not activate the free mobile profile");
+        }
+        self.profiles = self.store.list_profiles().unwrap_or_default();
+        self.adopt(profile);
+        self.limit_notice = false;
+        self.free_layout = true;
+        let _ = self.store.update_settings(|settings| {
+            settings.mobile_free_notice = false;
+            settings.mobile_free_layout = true;
+        });
+        self.status = i18n::tr!("status_saved");
+    }
+
+    fn confirm_profile_rename(&mut self) {
+        let Some((id, draft)) = self.profile_rename.take() else {
+            return;
+        };
+        let name = draft.trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        match self.store.load_profile(&id) {
+            Ok(mut profile) => {
+                profile.name = name.clone();
+                if let Err(error) = self.store.save_profile(&profile) {
+                    tracing::warn!(%error, "could not rename the profile");
+                    self.status =
+                        i18n::tr_args("errors_save_failed", &[("reason", error.to_string())]);
+                    return;
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "could not load the profile to rename");
+                self.status = i18n::tr_args("errors_save_failed", &[("reason", error.to_string())]);
+                return;
+            }
+        }
+        if self.profile.id == id {
+            self.profile.name = name;
+        }
+        self.profiles = self.store.list_profiles().unwrap_or_default();
+        self.status = i18n::tr!("status_saved");
+    }
+
+    fn confirm_profile_delete(&mut self) {
+        let Some(id) = self.profile_delete.take() else {
+            return;
+        };
+        if self.profiles.len() <= 1 {
+            self.status = i18n::tr!("status_last_profile");
+            return;
+        }
+        if let Err(error) = self.store.delete_profile(&id) {
+            tracing::warn!(%error, "could not delete the profile");
+            self.status = i18n::tr_args("errors_save_failed", &[("reason", error.to_string())]);
+            return;
+        }
+        self.profiles = self.store.list_profiles().unwrap_or_default();
+        if self.profile.id == id
+            && let Some(next) = self.profiles.first().cloned()
+        {
+            let _ = self.store.set_active_profile(&next.id);
+            self.adopt(next);
+        }
         self.status = i18n::tr!("status_saved");
     }
 
@@ -740,10 +1030,42 @@ impl App {
         }
     }
 
+    /// Whether this run is hosting the mobile deck.
+    pub(crate) fn mobile_enabled(&self) -> bool {
+        self.mobile.is_some()
+    }
+
     /// Action of the selected key, when there is one.
     pub(crate) fn selected_action(&self) -> Option<&ActionInstance> {
         let key = self.selected_key?;
         self.profile.slot(key).and_then(|slot| slot.action.as_ref())
+    }
+}
+
+fn qr_handle(text: &str) -> Option<ImageHandle> {
+    let code = qrcode::QrCode::new(text.as_bytes()).ok()?;
+    let image = code
+        .render::<image::Luma<u8>>()
+        .min_dimensions(240, 240)
+        .build();
+    let rgba = image::DynamicImage::ImageLuma8(image).to_rgba8();
+    Some(ImageHandle::from_rgba(
+        rgba.width(),
+        rgba.height(),
+        rgba.as_raw().clone(),
+    ))
+}
+
+fn cursor_listener(
+    event: iced::Event,
+    _status: iced::event::Status,
+    _window: iced::window::Id,
+) -> Option<Message> {
+    match event {
+        iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+            Some(Message::CursorMoved(position.x, position.y))
+        }
+        _ => None,
     }
 }
 

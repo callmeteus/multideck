@@ -5,6 +5,7 @@
 //! keep in sync.
 
 mod builtin;
+pub mod plugins;
 mod present;
 
 use multideck_core::{ActionDef, ActionInstance};
@@ -74,6 +75,7 @@ pub fn definitions() -> Vec<&'static ActionDef> {
         .into_iter()
         .map(|action| &action.def)
         .collect();
+    definitions.extend(plugins::actions().iter().map(|action| action.def));
     definitions.sort_by_key(|definition| definition.kind);
     definitions.dedup_by_key(|definition| definition.kind);
     definitions
@@ -85,6 +87,7 @@ pub fn definition(kind: &str) -> Option<&'static ActionDef> {
         .into_iter()
         .find(|action| action.def.kind == kind)
         .map(|action| &action.def)
+        .or_else(|| plugins::action(kind).map(|action| action.def))
 }
 
 fn executor(kind: &str) -> Option<&'static RegisteredAction> {
@@ -95,6 +98,10 @@ fn executor(kind: &str) -> Option<&'static RegisteredAction> {
 
 /// Runs one configured action instance.
 pub fn execute(instance: &ActionInstance) -> Result<Vec<Effect>, ActionError> {
+    if let Some(plugin) = plugins::action(&instance.kind) {
+        tracing::debug!(kind = %instance.kind, id = %instance.id, "running plugin action");
+        return plugin.run(instance);
+    }
     let action =
         executor(&instance.kind).ok_or_else(|| ActionError::UnknownKind(instance.kind.clone()))?;
     tracing::debug!(kind = %instance.kind, id = %instance.id, "running action");
@@ -127,6 +134,7 @@ mod tests {
             "command",
             "delay",
             "folder",
+            "hex",
             "hotkey",
             "media",
             "multi",

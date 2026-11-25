@@ -18,5 +18,6 @@ pub fn run() -> iced::Result {
         .theme(App::theme)
         .subscription(App::subscription)
         .window_size((1180.0, 760.0))
+        .centered()
         .run()
 }

@@ -17,7 +17,7 @@ pub mod proto {
 
 mod session;
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
 use async_trait::async_trait;
@@ -43,6 +43,11 @@ pub struct MobileConfig {
     pub auto_trust: bool,
     /// File where trusted client keys are remembered. `None` keeps trust in memory.
     pub trust_file: Option<std::path::PathBuf>,
+    /// File holding the long lived host public key. The phone pins this key, so
+    /// it has to survive restarts or every launch looks like a new computer.
+    pub key_file: Option<std::path::PathBuf>,
+    /// Port to listen on. Zero asks the operating system for a free port.
+    pub port: u16,
 }
 
 impl MobileConfig {
@@ -55,13 +60,15 @@ impl MobileConfig {
             caps: DeviceCaps {
                 cols: 5,
                 rows: 3,
-                key_image: (96, 96),
+                key_image: (288, 288),
                 encoders: 0,
                 touch_strip: false,
                 format: KeyImageFormat::Png,
             },
             auto_trust: false,
             trust_file: None,
+            key_file: None,
+            port: 0,
         }
     }
 }
@@ -86,13 +93,17 @@ pub(crate) struct PairingState {
 
 pub(crate) struct Shared {
     pub config: MobileConfig,
+    pub secret_key: [u8; 32],
     pub public_key: [u8; 32],
     pub latest: StdMutex<Vec<Option<Arc<RgbaImage>>>>,
     pub updates: broadcast::Sender<(u8, Arc<RgbaImage>)>,
     pub inputs: Mutex<Option<InputSender>>,
     pub port: watch::Sender<Option<u16>>,
     pub brightness: AtomicU8,
+    pub connected: AtomicUsize,
+    pub pro: StdMutex<Option<bool>>,
     pub pairing: StdMutex<Option<PairingState>>,
+    pub token: String,
     pub trusted: StdMutex<Vec<Vec<u8>>>,
 }
 
@@ -114,10 +125,10 @@ impl MobileDeck {
     /// Starts a deck handle and its adapter. The socket is bound when the
     /// adapter runs, so the port becomes available through [`Self::port`].
     pub fn new(config: MobileConfig) -> (Self, MobileAdapter) {
-        let mut public_key = [0u8; 32];
-        if getrandom::fill(&mut public_key).is_err() {
-            tracing::warn!("no system randomness available for the mobile keypair");
-        }
+        let secret_key = load_or_create_key(config.key_file.as_deref());
+        let public_key = *crypto_box::SecretKey::from(secret_key)
+            .public_key()
+            .as_bytes();
 
         let keys = config.caps.key_count() as usize;
         let trusted = load_trusted(config.trust_file.as_deref());
@@ -125,12 +136,16 @@ impl MobileDeck {
         let (port, ports) = watch::channel(None);
         let shared = Arc::new(Shared {
             config,
+            secret_key,
             public_key,
             latest: StdMutex::new(vec![None; keys]),
             updates,
             inputs: Mutex::new(None),
             port,
             brightness: AtomicU8::new(80),
+            connected: AtomicUsize::new(0),
+            pro: StdMutex::new(None),
+            token: generate_token(),
             pairing: StdMutex::new(None),
             trusted: StdMutex::new(trusted),
         });
@@ -157,6 +172,16 @@ impl MobileDeck {
         &self.descriptor
     }
 
+    /// Subscription plan the phone reported, when it has said anything.
+    pub fn is_pro(&self) -> Option<bool> {
+        self.shared.pro.lock().ok().and_then(|pro| *pro)
+    }
+
+    /// Whether an authenticated phone session is active right now.
+    pub fn is_connected(&self) -> bool {
+        self.shared.connected.load(Ordering::Relaxed) > 0
+    }
+
     /// Port the listener is bound to, once the adapter has started.
     pub fn port(&self) -> Option<u16> {
         *self.ports.borrow()
@@ -167,21 +192,51 @@ impl MobileDeck {
         self.ports.clone()
     }
 
+    /// URL encoded in the pairing QR, mirroring the official desktop format.
+    pub fn pairing_url(&self) -> Option<String> {
+        self.pairing_url_for(&local_addresses())
+    }
+
+    /// Pairing URL limited to the addresses the user selected.
+    pub fn pairing_url_for(&self, addresses: &[String]) -> Option<String> {
+        let port = self.port()?;
+        let mut url = format!(
+            "https://streamdeck.elgato.com/c/?t={}&w={}",
+            self.shared.token, self.shared.config.workstation_id
+        );
+        for address in addresses {
+            url.push_str(&format!("&av2={address}:{port}"));
+        }
+        Some(url)
+    }
     /// Code of the client waiting for a trust decision, when there is one.
     pub fn pending_pairing(&self) -> Option<String> {
-        self.shared
-            .pairing
-            .lock()
-            .ok()
-            .and_then(|pairing| pairing.as_ref().map(|state| state.code.clone()))
+        self.shared.pairing.lock().ok().and_then(|pairing| {
+            pairing
+                .as_ref()
+                .filter(|state| state.decision.is_none())
+                .map(|state| state.code.clone())
+        })
     }
 
     /// Accepts or rejects the pending pairing request.
     pub fn resolve_pairing(&self, accept: bool) {
-        if let Ok(mut pairing) = self.shared.pairing.lock()
-            && let Some(state) = pairing.as_mut()
-        {
-            state.decision = Some(accept);
+        let approved = if let Ok(mut pairing) = self.shared.pairing.lock() {
+            match pairing.as_mut() {
+                Some(state) => {
+                    state.decision = Some(accept);
+                    accept.then(|| state.client_key.clone())
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+        if let Some(key) = approved {
+            // The phone drops the socket every few seconds while it waits for the
+            // answer, so the decision has to outlive this session. Trusting the key
+            // makes the next connection authenticate immediately.
+            remember_trust(&self.shared, &key);
         }
     }
     /// Publishes an image, as the host would through a device command.
@@ -258,13 +313,26 @@ impl DeviceAdapter for MobileAdapter {
     ) -> Result<(), DeviceError> {
         *self.shared.inputs.lock().await = Some(inputs);
 
-        let listener =
-            TcpListener::bind(("0.0.0.0", 0))
-                .await
-                .map_err(|error| DeviceError::Failed {
+        let requested_port = self.shared.config.port;
+        let listener = match bind_listener(requested_port).await {
+            Some(listener) => listener,
+            None if requested_port != 0 => {
+                tracing::warn!(
+                    requested_port,
+                    "mobile port is busy, falling back to a free port"
+                );
+                bind_listener(0).await.ok_or_else(|| DeviceError::Failed {
                     device: "sdmobile".to_string(),
-                    reason: format!("could not bind the mobile listener: {error}"),
-                })?;
+                    reason: "could not bind the mobile listener".to_string(),
+                })?
+            }
+            None => {
+                return Err(DeviceError::Failed {
+                    device: "sdmobile".to_string(),
+                    reason: "could not bind the mobile listener".to_string(),
+                });
+            }
+        };
         let port = listener
             .local_addr()
             .map_err(|error| DeviceError::Failed {
@@ -310,6 +378,158 @@ impl DeviceAdapter for MobileAdapter {
         sessions.abort_all();
         Ok(())
     }
+}
+
+/// One IPv4 address the pairing QR can advertise.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkInterface {
+    /// Operating system interface name, for example `Ethernet` or `Tailscale`.
+    pub name: String,
+    /// IPv4 address on that interface.
+    pub address: String,
+}
+
+/// Lists the IPv4 interfaces that can host the pairing connection.
+pub fn interfaces() -> Vec<NetworkInterface> {
+    let mut list: Vec<NetworkInterface> = if_addrs::get_if_addrs()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|interface| match interface.ip() {
+            std::net::IpAddr::V4(ip) if !ip.is_loopback() && !ip.is_link_local() => {
+                Some(NetworkInterface {
+                    name: interface.name.clone(),
+                    address: ip.to_string(),
+                })
+            }
+            _ => None,
+        })
+        .collect();
+
+    list.sort_by(|left, right| {
+        let left_score = address_score(&left.name, &left.address);
+        let right_score = address_score(&right.name, &right.address);
+        right_score
+            .cmp(&left_score)
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    list.dedup_by(|left, right| left.address == right.address);
+    list
+}
+
+fn address_score(name: &str, address: &str) -> i32 {
+    let Ok(ip) = address.parse::<std::net::Ipv4Addr>() else {
+        return 0;
+    };
+    let mut score = 0;
+    if ip.is_private() {
+        score += 10;
+    }
+    // Carrier grade NAT is what Tailscale and similar overlays use; keep them
+    // available but behind a real LAN address.
+    let octets = ip.octets();
+    if octets[0] == 100 && (64..=127).contains(&octets[1]) {
+        score -= 30;
+    }
+    let name = name.to_ascii_lowercase();
+    if [
+        "tailscale",
+        "netbird",
+        "zerotier",
+        "wsl",
+        "vethernet",
+        "docker",
+        "vmware",
+        "virtualbox",
+    ]
+    .iter()
+    .any(|marker| name.contains(marker))
+    {
+        score -= 20;
+    }
+    if ip == std::net::Ipv4Addr::new(192, 168, 56, 1) {
+        score -= 10;
+    }
+    score
+}
+fn generate_token() -> String {
+    const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz234567";
+    let mut bytes = [0u8; 20];
+    if getrandom::fill(&mut bytes).is_err() {
+        return "multideckpairing0000".to_string();
+    }
+    bytes
+        .iter()
+        .map(|byte| ALPHABET[(*byte as usize) % ALPHABET.len()] as char)
+        .collect()
+}
+
+fn local_addresses() -> Vec<String> {
+    let mut addresses: Vec<std::net::Ipv4Addr> = if_addrs::get_if_addrs()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|interface| match interface.ip() {
+            std::net::IpAddr::V4(ip) if !ip.is_loopback() && !ip.is_link_local() => Some(ip),
+            _ => None,
+        })
+        .collect();
+    addresses.sort();
+    addresses.dedup();
+
+    // The address used for the default route is the one the phone can reach
+    // when both are on the same network, so it goes first.
+    let primary = primary_address();
+    let mut ordered = Vec::with_capacity(addresses.len());
+    if let Some(primary) = primary {
+        ordered.push(primary);
+    }
+    for address in addresses {
+        if Some(address) != primary {
+            ordered.push(address);
+        }
+    }
+    ordered
+        .into_iter()
+        .map(|address| address.to_string())
+        .collect()
+}
+
+fn primary_address() -> Option<std::net::Ipv4Addr> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    match socket.local_addr().ok()?.ip() {
+        std::net::IpAddr::V4(ip) => Some(ip),
+        std::net::IpAddr::V6(_) => None,
+    }
+}
+async fn bind_listener(port: u16) -> Option<TcpListener> {
+    match TcpListener::bind(("0.0.0.0", port)).await {
+        Ok(listener) => Some(listener),
+        Err(error) => {
+            tracing::warn!(port, %error, "mobile listener bind failed");
+            None
+        }
+    }
+}
+
+fn load_or_create_key(path: Option<&std::path::Path>) -> [u8; 32] {
+    if let Some(path) = path
+        && let Ok(text) = std::fs::read_to_string(path)
+        && let Some(bytes) = decode_hex(&text)
+        && let Ok(key) = <[u8; 32]>::try_from(bytes.as_slice())
+    {
+        return key;
+    }
+
+    let mut key = [0u8; 32];
+    if getrandom::fill(&mut key).is_err() {
+        tracing::warn!("no system randomness available for the mobile keypair");
+    }
+    if let Some(path) = path
+        && let Err(error) = std::fs::write(path, encode_hex(&key))
+    {
+        tracing::warn!(%error, "could not persist the mobile host key");
+    }
+    key
 }
 
 fn load_trusted(path: Option<&std::path::Path>) -> Vec<Vec<u8>> {
@@ -373,10 +593,40 @@ mod tests {
     use prost::Message;
     use tokio_tungstenite::tungstenite::Message as WsMessage;
 
+    fn client_keys(seed: u8) -> (Vec<u8>, crypto_box::SecretKey) {
+        let secret = crypto_box::SecretKey::from([seed; 32]);
+        let public = secret.public_key().as_bytes().to_vec();
+        (public, secret)
+    }
+
+    fn shared_box(server_public: &[u8], secret: &crypto_box::SecretKey) -> crypto_box::SalsaBox {
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(server_public);
+        crypto_box::SalsaBox::new(&crypto_box::PublicKey::from(bytes), secret)
+    }
+
+    fn seal(
+        shared: &crypto_box::SalsaBox,
+        nonce_byte: u8,
+        message: &proto::ClientMessage,
+    ) -> Vec<u8> {
+        use crypto_box::aead::Aead;
+
+        let nonce_bytes = [nonce_byte; 24];
+        let nonce = crypto_box::Nonce::from_slice(&nonce_bytes);
+        let mut frame = nonce_bytes.to_vec();
+        let sealed = shared
+            .encrypt(nonce, message.encode_to_vec().as_slice())
+            .expect("seal client frame");
+        frame.extend_from_slice(&sealed);
+        frame
+    }
+
     async fn next_server(
         ws: &mut tokio_tungstenite::WebSocketStream<
             tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
         >,
+        shared: Option<&crypto_box::SalsaBox>,
     ) -> proto::ServerMessage {
         let message = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
             .await
@@ -386,7 +636,18 @@ mod tests {
         let WsMessage::Binary(bytes) = message else {
             panic!("expected a binary frame");
         };
-        proto::ServerMessage::decode(bytes.as_ref()).expect("valid server message")
+        let payload = match shared {
+            Some(shared) => {
+                use crypto_box::aead::Aead;
+
+                let nonce = crypto_box::Nonce::from_slice(&bytes[..24]);
+                shared
+                    .decrypt(nonce, &bytes[24..])
+                    .expect("decrypt server frame")
+            }
+            None => bytes.to_vec(),
+        };
+        proto::ServerMessage::decode(payload.as_slice()).expect("valid server message")
     }
 
     #[tokio::test]
@@ -414,10 +675,11 @@ mod tests {
             .await
             .expect("connect");
 
+        let (client_public, client_secret) = client_keys(7);
         let hello = proto::ClientMessage {
             payload: Some(proto::client_message::Payload::Hello(
                 proto::HelloFromClient {
-                    public_key: vec![7u8; 32],
+                    public_key: client_public,
                     client_information: Some(proto::ClientInformation {
                         name: "Test phone".into(),
                         user_agent: "Stream Deck Mobile/2.1.2".into(),
@@ -431,28 +693,42 @@ mod tests {
             .await
             .expect("send hello");
 
-        let reply = next_server(&mut ws).await;
+        let reply = next_server(&mut ws, None).await;
         let Some(proto::server_message::Payload::Hello(server)) = reply.payload else {
             panic!("expected HelloFromServer");
         };
+        let shared = shared_box(&server.public_key, &client_secret);
         assert_eq!(server.workstation_id, "TESTWORKSTATION00000");
         assert_eq!(server.protocol_version, 3);
-        assert!(!server.client_needs_authentication, "auto trust is enabled");
+        assert!(
+            server.client_needs_authentication,
+            "the client always authenticates; trust is decided on the server"
+        );
+        let list = next_server(&mut ws, Some(&shared)).await;
+        assert!(matches!(
+            list.payload,
+            Some(proto::server_message::Payload::VirtualDeviceList(_))
+        ));
 
         let authenticate = proto::ClientMessage {
             payload: Some(proto::client_message::Payload::Authenticate(
                 proto::Authenticate { request_id: 42 },
             )),
         };
-        ws.send(WsMessage::Binary(authenticate.encode_to_vec().into()))
+        ws.send(WsMessage::Binary(seal(&shared, 1, &authenticate).into()))
             .await
             .expect("send authenticate");
-        let reply = next_server(&mut ws).await;
+        let reply = next_server(&mut ws, Some(&shared)).await;
         assert!(matches!(
             reply.payload,
             Some(proto::server_message::Payload::Ok(proto::Ok {
                 request_id: 42
             }))
+        ));
+        let list = next_server(&mut ws, Some(&shared)).await;
+        assert!(matches!(
+            list.payload,
+            Some(proto::server_message::Payload::VirtualDeviceList(_))
         ));
 
         let open = proto::ClientMessage {
@@ -475,10 +751,10 @@ mod tests {
                 },
             )),
         };
-        ws.send(WsMessage::Binary(open.encode_to_vec().into()))
+        ws.send(WsMessage::Binary(seal(&shared, 2, &open).into()))
             .await
             .expect("send open");
-        let reply = next_server(&mut ws).await;
+        let reply = next_server(&mut ws, Some(&shared)).await;
         assert!(matches!(
             reply.payload,
             Some(proto::server_message::Payload::VirtualDeviceOpened(
@@ -492,7 +768,7 @@ mod tests {
                 pressed: true,
             })),
         };
-        ws.send(WsMessage::Binary(press.encode_to_vec().into()))
+        ws.send(WsMessage::Binary(seal(&shared, 3, &press).into()))
             .await
             .expect("send press");
         let event = tokio::time::timeout(std::time::Duration::from_secs(2), input_rx.recv())
@@ -511,7 +787,7 @@ mod tests {
                 )),
             })
             .expect("send image");
-        let reply = next_server(&mut ws).await;
+        let reply = next_server(&mut ws, Some(&shared)).await;
         let Some(proto::server_message::Payload::Icon(icon)) = reply.payload else {
             panic!("expected an icon");
         };
@@ -550,10 +826,11 @@ mod tests {
             .await
             .expect("connect");
 
+        let (client_public, client_secret) = client_keys(9);
         let hello = proto::ClientMessage {
             payload: Some(proto::client_message::Payload::Hello(
                 proto::HelloFromClient {
-                    public_key: vec![9u8; 32],
+                    public_key: client_public,
                     client_information: Some(proto::ClientInformation {
                         name: "Pairing phone".into(),
                         user_agent: "Stream Deck Mobile/2.1.2".into(),
@@ -566,11 +843,17 @@ mod tests {
         ws.send(WsMessage::Binary(hello.encode_to_vec().into()))
             .await
             .expect("send hello");
-        let reply = next_server(&mut ws).await;
+        let reply = next_server(&mut ws, None).await;
         let Some(proto::server_message::Payload::Hello(server)) = reply.payload else {
             panic!("expected HelloFromServer");
         };
+        let shared = shared_box(&server.public_key, &client_secret);
         assert!(server.client_needs_authentication);
+        let list = next_server(&mut ws, Some(&shared)).await;
+        assert!(matches!(
+            list.payload,
+            Some(proto::server_message::Payload::VirtualDeviceList(_))
+        ));
         let code = deck.pending_pairing().expect("pending pairing code");
         assert_eq!(code.len(), 6);
 
@@ -579,7 +862,7 @@ mod tests {
                 proto::Authenticate { request_id: 5 },
             )),
         };
-        ws.send(WsMessage::Binary(authenticate.encode_to_vec().into()))
+        ws.send(WsMessage::Binary(seal(&shared, 1, &authenticate).into()))
             .await
             .expect("send authenticate");
 
@@ -587,7 +870,7 @@ mod tests {
         assert!(early.is_err(), "server must wait for the decision");
 
         deck.resolve_pairing(true);
-        let reply = next_server(&mut ws).await;
+        let reply = next_server(&mut ws, Some(&shared)).await;
         assert!(matches!(
             reply.payload,
             Some(proto::server_message::Payload::Ok(proto::Ok {

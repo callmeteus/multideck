@@ -51,6 +51,7 @@ graph TD
   desktop --> events
   desktop --> virtual
   desktop --> core
+  desktop --> platform
 
   ui --> core
   render --> core
@@ -140,7 +141,7 @@ Encoding happens at the edge, in `KeyRenderer::encode`, because the target forma
 
 ## State
 
-The desktop app holds one active profile and writes it on every change. There is no in memory queue: pressing Apply writes the profile file and then asks every key to render. Startup does the reverse: open the store, load the active profile (or create `Default`), fit it to the device capabilities, render, then connect the adapter.
+The desktop app holds one active profile and writes it on every change. Settings and profiles are written to a temporary file in the same directory and then replaced atomically, so a failed write keeps the previous complete file. Settings changes update memory only after the replacement succeeds. There is no in memory queue: pressing Apply writes the profile file and then asks every key to render. Startup does the reverse: open the store, load the active profile (or create `Default`), fit it to the device capabilities, render, then connect the adapter.
 
 Settings and profiles are separate on purpose. Losing `settings.toml` costs the language choice and the active profile pointer, not the layouts.
 

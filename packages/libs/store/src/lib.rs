@@ -10,6 +10,7 @@
 //! ```
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use multideck_core::{DeviceCaps, Profile};
@@ -95,6 +96,10 @@ impl Paths {
 }
 
 /// Application settings persisted between runs.
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     /// Locale tag; empty means "detect from the system".
@@ -109,6 +114,18 @@ pub struct Settings {
     /// Workstation identity announced to Stream Deck Mobile.
     #[serde(default)]
     pub mobile_workstation_id: String,
+    /// Network address selected for the pairing QR.
+    #[serde(default)]
+    pub mobile_address: String,
+    /// Port kept between launches so the phone can reconnect to the same host.
+    #[serde(default)]
+    pub mobile_port: u16,
+    /// Whether the free plan notice should still be offered.
+    #[serde(default = "default_true")]
+    pub mobile_free_notice: bool,
+    /// Whether the editor shows only the six keys a free phone can use.
+    #[serde(default)]
+    pub mobile_free_layout: bool,
 }
 
 fn default_brightness() -> u8 {
@@ -122,6 +139,10 @@ impl Default for Settings {
             brightness: default_brightness(),
             active_profile: None,
             mobile_workstation_id: String::new(),
+            mobile_address: String::new(),
+            mobile_port: 0,
+            mobile_free_notice: true,
+            mobile_free_layout: false,
         }
     }
 }
@@ -205,20 +226,22 @@ impl Store {
         &mut self,
         change: impl FnOnce(&mut Settings),
     ) -> Result<&Settings, StoreError> {
-        change(&mut self.settings);
-        self.save_settings()?;
+        let mut candidate = self.settings.clone();
+        change(&mut candidate);
+        self.write_settings(&candidate)?;
+        self.settings = candidate;
         Ok(&self.settings)
     }
 
     /// Writes the settings file.
     pub fn save_settings(&self) -> Result<(), StoreError> {
-        let text = toml::to_string_pretty(&self.settings)
+        self.write_settings(&self.settings)
+    }
+
+    fn write_settings(&self, settings: &Settings) -> Result<(), StoreError> {
+        let text = toml::to_string_pretty(settings)
             .map_err(|error| StoreError::Settings(error.to_string()))?;
-        fs::write(self.paths.settings_file(), text).map_err(|source| StoreError::Io {
-            action: "write settings",
-            path: self.paths.settings_file(),
-            source,
-        })
+        write_atomic(&self.paths.settings_file(), &text, "write settings")
     }
 
     /// Lists every readable profile, newest file first.
@@ -274,11 +297,21 @@ impl Store {
         let text = profile
             .to_json()
             .map_err(|error| StoreError::Profile(error.to_string()))?;
-        fs::write(&path, text).map_err(|source| StoreError::Io {
-            action: "write profile",
-            path,
-            source,
-        })
+        write_atomic(&path, &text, "write profile")
+    }
+
+    /// Deletes a profile file. Missing files are treated as already deleted.
+    pub fn delete_profile(&self, id: &str) -> Result<(), StoreError> {
+        let path = self.paths.profile_file(id);
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(source) => Err(StoreError::Io {
+                action: "delete profile",
+                path,
+                source,
+            }),
+        }
     }
 
     /// Loads the active profile, creating a default one when there is none.
@@ -333,6 +366,32 @@ impl Store {
             _watcher: watcher,
         })
     }
+}
+
+fn write_atomic(path: &Path, contents: &str, action: &'static str) -> Result<(), StoreError> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut file = tempfile::NamedTempFile::new_in(parent).map_err(|source| StoreError::Io {
+        action,
+        path: path.to_path_buf(),
+        source,
+    })?;
+    file.write_all(contents.as_bytes())
+        .map_err(|source| StoreError::Io {
+            action,
+            path: path.to_path_buf(),
+            source,
+        })?;
+    file.as_file().sync_all().map_err(|source| StoreError::Io {
+        action,
+        path: path.to_path_buf(),
+        source,
+    })?;
+    file.persist(path).map_err(|error| StoreError::Io {
+        action,
+        path: path.to_path_buf(),
+        source: error.error,
+    })?;
+    Ok(())
 }
 
 fn sanitize(id: &str) -> String {
@@ -391,6 +450,51 @@ mod tests {
         let store = Store::open_at(paths).expect("reopen store");
         assert_eq!(store.settings().locale, "pt-BR");
         assert_eq!(store.settings().brightness, 42);
+    }
+
+    #[test]
+    fn failed_settings_write_keeps_memory_and_disk_unchanged() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let paths = Paths::new(directory.path());
+        let mut store = Store::open_at(paths.clone()).expect("open store");
+        store.save_settings().expect("save settings");
+
+        let settings_file = paths.settings_file();
+        let backup = directory.path().join("settings.backup");
+        fs::rename(&settings_file, &backup).expect("move settings aside");
+        fs::create_dir(&settings_file).expect("block settings path");
+
+        let result = store.update_settings(|settings| settings.locale = "pt-BR".into());
+
+        assert!(result.is_err());
+        assert_eq!(store.settings().locale, "");
+
+        fs::remove_dir(&settings_file).expect("remove blocked path");
+        fs::rename(&backup, &settings_file).expect("restore settings");
+        let reopened = Store::open_at(paths).expect("reopen store");
+        assert_eq!(reopened.settings().locale, "");
+    }
+
+    #[test]
+    fn atomic_writes_leave_no_temporary_files() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let paths = Paths::new(directory.path());
+        let store = Store::open_at(paths.clone()).expect("open store");
+        store.save_settings().expect("save settings");
+        store
+            .save_profile(&Profile::new("Atomic", &DeviceCaps::default()))
+            .expect("save profile");
+
+        for folder in [paths.root(), paths.profiles_dir().as_path()] {
+            for entry in fs::read_dir(folder).expect("read folder") {
+                let name = entry.expect("entry").file_name();
+                assert!(
+                    !name.to_string_lossy().ends_with(".tmp"),
+                    "temporary file left behind: {}",
+                    name.to_string_lossy()
+                );
+            }
+        }
     }
 
     #[test]
