@@ -164,7 +164,7 @@ Errors carry the action kind or the device id so a log line is actionable withou
 
 **Adapters are dumb, actions are blind.** The adapter knows hardware, the action knows intent, and the host knows the layout. This is what allows the virtual deck to exercise the same path as a USB deck.
 
-**Actions self register.** `inventory::submit!` collects every `RegisteredAction` at link time, and `definitions()` sorts them. There is no central match to update, so a plugin crate can add an action without editing the desktop app.
+**Actions self register.** `inventory::submit!` collects every `RegisteredAction` at link time, and `definitions()` sorts them. There is no central match to update, so a plugin crate can add an action without editing the desktop app. The same resolver serves the palette, inspector and executor. Built-in actions take precedence over YAML plugins with the same kind.
 
 **Files over a database.** Profiles are JSON and settings are TOML. Users can diff, generate and back up their layouts with tools they already have.
 

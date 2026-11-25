@@ -61,7 +61,7 @@ One adapter with a model table, built on the publicly documented HID protocol. T
 ## Not planned
 
 - Cloud accounts, sync or telemetry. Profiles are local files, and that is the feature.
-- A plugin marketplace. Actions are compile time registrations for now.
+- A plugin marketplace. Built-in actions self register at compile time and local YAML files can add command actions, but there is no hosted catalogue.
 - Emulating a deck for other software. MultiDeck drives decks, it does not pretend to be a device.
 
 ## Contributing to the roadmap

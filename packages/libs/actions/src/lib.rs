@@ -12,6 +12,8 @@ use multideck_core::{ActionDef, ActionInstance};
 use multideck_platform::PlatformError;
 use thiserror::Error;
 
+use crate::plugins::PluginAction;
+
 pub use present::{Palette, empty, palette_for, present};
 
 /// An effect that only the host application can apply.
@@ -71,41 +73,89 @@ inventory::collect!(RegisteredAction);
 
 /// Every registered action, sorted by kind.
 pub fn definitions() -> Vec<&'static ActionDef> {
-    let mut definitions: Vec<&'static ActionDef> = inventory::iter::<RegisteredAction>
+    let mut kinds: Vec<&'static str> = inventory::iter::<RegisteredAction>
         .into_iter()
-        .map(|action| &action.def)
+        .map(|action| action.def.kind)
         .collect();
-    definitions.extend(plugins::actions().iter().map(|action| action.def));
-    definitions.sort_by_key(|definition| definition.kind);
-    definitions.dedup_by_key(|definition| definition.kind);
-    definitions
+    kinds.extend(plugins::actions().iter().map(|action| action.def.kind));
+    kinds.sort_unstable();
+    kinds.dedup();
+    kinds
+        .into_iter()
+        .filter_map(resolve)
+        .map(|action| action.def())
+        .collect()
 }
 
 /// Looks up an action by kind.
 pub fn definition(kind: &str) -> Option<&'static ActionDef> {
-    inventory::iter::<RegisteredAction>
-        .into_iter()
-        .find(|action| action.def.kind == kind)
-        .map(|action| &action.def)
-        .or_else(|| plugins::action(kind).map(|action| action.def))
+    resolve(kind).map(|action| action.def())
 }
 
-fn executor(kind: &str) -> Option<&'static RegisteredAction> {
-    inventory::iter::<RegisteredAction>
+enum ResolvedAction<'a> {
+    Builtin(&'static RegisteredAction),
+    Plugin(&'a PluginAction),
+}
+
+impl ResolvedAction<'_> {
+    fn def(&self) -> &'static ActionDef {
+        match self {
+            Self::Builtin(action) => &action.def,
+            Self::Plugin(action) => action.def,
+        }
+    }
+
+    fn source(&self) -> &'static str {
+        match self {
+            Self::Builtin(_) => "builtin",
+            Self::Plugin(_) => "plugin",
+        }
+    }
+
+    fn run(&self, instance: &ActionInstance) -> Result<Vec<Effect>, ActionError> {
+        match self {
+            Self::Builtin(action) => (action.run)(instance),
+            Self::Plugin(action) => action.run(instance),
+        }
+    }
+}
+
+fn resolve(kind: &str) -> Option<ResolvedAction<'static>> {
+    select_action(
+        kind,
+        inventory::iter::<RegisteredAction>,
+        plugins::actions(),
+    )
+}
+
+fn select_action<'a>(
+    kind: &str,
+    builtins: impl IntoIterator<Item = &'static RegisteredAction>,
+    plugins: impl IntoIterator<Item = &'a PluginAction>,
+) -> Option<ResolvedAction<'a>> {
+    builtins
         .into_iter()
         .find(|action| action.def.kind == kind)
+        .map(ResolvedAction::Builtin)
+        .or_else(|| {
+            plugins
+                .into_iter()
+                .find(|action| action.def.kind == kind)
+                .map(ResolvedAction::Plugin)
+        })
 }
 
 /// Runs one configured action instance.
 pub fn execute(instance: &ActionInstance) -> Result<Vec<Effect>, ActionError> {
-    if let Some(plugin) = plugins::action(&instance.kind) {
-        tracing::debug!(kind = %instance.kind, id = %instance.id, "running plugin action");
-        return plugin.run(instance);
-    }
     let action =
-        executor(&instance.kind).ok_or_else(|| ActionError::UnknownKind(instance.kind.clone()))?;
-    tracing::debug!(kind = %instance.kind, id = %instance.id, "running action");
-    (action.run)(instance)
+        resolve(&instance.kind).ok_or_else(|| ActionError::UnknownKind(instance.kind.clone()))?;
+    tracing::debug!(
+        kind = %instance.kind,
+        id = %instance.id,
+        source = action.source(),
+        "running action"
+    );
+    action.run(instance)
 }
 
 /// Runs an action described by a kind and a JSON settings object.
@@ -198,6 +248,61 @@ mod tests {
             effects,
             vec![Effect::SetBrightness(10), Effect::SwitchPage(2)]
         );
+    }
+
+    static DUPLICATE_DEF: ActionDef = ActionDef {
+        kind: "duplicate",
+        label_key: "Duplicate",
+        description_key: "Duplicate action",
+        icon: "command",
+        tags: &[],
+        fields: &[],
+        title_key: "Duplicate",
+    };
+    static PLUGIN_DEF: ActionDef = ActionDef {
+        kind: "plugin-only",
+        label_key: "Plugin only",
+        description_key: "Plugin action",
+        icon: "command",
+        tags: &[],
+        fields: &[],
+        title_key: "Plugin only",
+    };
+    static BUILTIN: RegisteredAction = RegisteredAction {
+        def: DUPLICATE_DEF,
+        run: |_| Ok(Vec::new()),
+    };
+
+    #[test]
+    fn builtin_resolution_wins_over_a_plugin_with_the_same_kind() {
+        let plugin = PluginAction {
+            def: &DUPLICATE_DEF,
+            command: "plugin-command".to_string(),
+            args: Vec::new(),
+        };
+
+        let resolved = select_action(
+            "duplicate",
+            std::iter::once(&BUILTIN),
+            std::iter::once(&plugin),
+        )
+        .expect("duplicate action");
+
+        assert!(matches!(resolved, ResolvedAction::Builtin(_)));
+    }
+
+    #[test]
+    fn plugin_resolution_is_used_when_no_builtin_exists() {
+        let plugin = PluginAction {
+            def: &PLUGIN_DEF,
+            command: "plugin-command".to_string(),
+            args: Vec::new(),
+        };
+
+        let resolved = select_action("plugin-only", std::iter::empty(), std::iter::once(&plugin))
+            .expect("plugin action");
+
+        assert!(matches!(resolved, ResolvedAction::Plugin(_)));
     }
 
     #[test]
