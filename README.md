@@ -24,7 +24,7 @@ MultiDeck hosts several kinds of stream deck behind one architecture: one profil
 - **Virtual deck**: a 5x3 in process deck that follows the same command and input path as hardware.
 - **USB decks**: Elgato Stream Deck detection, key images, encoders and touch through the same adapter contract.
 - **Tray icon** on Windows: bring the window back or quit without hunting for the taskbar.
-- **Stream Deck Mobile**: run with `MULTIDECK_DEVICE=mobile` to host the VSD2 server, advertise it over mDNS and pair the official phone app, with a code confirmation card on the desktop.
+- **Stream Deck Mobile**: the default device. MultiDeck hosts the VSD2 server, advertises it over mDNS and pairs the official phone app, with a code confirmation card on the desktop. Use `MULTIDECK_DEVICE=virtual` or `usb` to pick another deck.
 - **Profiles, pages and keys**: plain JSON profiles with multiple pages and per-profile brightness.
 - **Drag and drop**: pull an action from the palette onto any key, or press Delete on a selected key; removal always asks for confirmation.
 - **Ten native actions**: hotkey, open, text, media, command, delay, multi action, page jump, profile switch and brightness.

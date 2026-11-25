@@ -208,8 +208,10 @@ impl App {
 
         let mut store = Store::open().map_err(|error| error.to_string())?;
 
+        // The phone app is the default deck: without an explicit device the
+        // mobile host starts so the pairing button is always usable.
         let requested = std::env::var("MULTIDECK_DEVICE")
-            .unwrap_or_default()
+            .unwrap_or_else(|_| "mobile".to_string())
             .to_ascii_lowercase();
 
         let detected = if requested == "virtual" || requested == "mobile" {
