@@ -32,10 +32,12 @@ jobs:
           GTI_CI_APP_PRIVATE_KEY: ${{ secrets.GTI_CI_APP_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            curl ca-certificates jq openssl pkg-config \
-            libudev-dev libxkbcommon-dev libwayland-dev libx11-dev
+          if command -v apt-get >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              curl ca-certificates jq openssl pkg-config \
+              libudev-dev libxkbcommon-dev libwayland-dev libx11-dev
+          fi
           if ! command -v cargo >/dev/null 2>&1; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           fi
@@ -124,9 +126,11 @@ jobs:
           GTI_CI_APP_PRIVATE_KEY: ${{ secrets.GTI_CI_APP_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            curl ca-certificates jq openssl pkg-config mingw-w64 zip
+          if command -v apt-get >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              curl ca-certificates jq openssl pkg-config mingw-w64 zip
+          fi
           if ! command -v cargo >/dev/null 2>&1; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
           fi
