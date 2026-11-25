@@ -1,0 +1,190 @@
+name: Release
+
+# Builds the Windows and Linux binaries on the Forgejo runner and publishes
+# them as a GitHub release. The runner is Linux only, so the Windows build is
+# cross-compiled with mingw-w64.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GH_REPO: callmeteus/multideck
+
+jobs:
+  metadata:
+    name: metadata
+    runs-on: docker
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: meta
+        shell: bash
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n1)"
+          sha="$(git rev-parse --short HEAD)"
+          echo "tag=v${version}-${sha}" >> "$GITHUB_OUTPUT"
+
+  create-release:
+    name: create release
+    needs: [metadata]
+    runs-on: docker
+    steps:
+      - name: GitHub App token
+        id: token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GTI_CI_APP_ID }}
+          private-key: ${{ secrets.GTI_CI_APP_PRIVATE_KEY }}
+
+      - name: Create the GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+        run: |
+          set -euo pipefail
+          body="{\"tag_name\":\"$TAG\",\"name\":\"MultiDeck $TAG\",\"prerelease\":true,\"generate_release_notes\":true}"
+          code=$(curl -sS -o /tmp/release.json -w '%{http_code}' \
+            -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GH_REPO/releases" \
+            -d "$body")
+          if [ "$code" = "201" ] || [ "$code" = "422" ]; then
+            echo "Release $TAG is ready"
+            exit 0
+          fi
+          cat /tmp/release.json
+          exit 1
+
+  linux:
+    name: linux
+    needs: [metadata]
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: System packages
+        shell: bash
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            libudev-dev libxkbcommon-dev libwayland-dev libx11-dev pkg-config
+
+      - name: Build
+        shell: bash
+        run: cargo build --release -p multideck-desktop
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p pkg/multideck dist
+          cp target/release/multideck pkg/multideck/
+          cp README.md LICENSE pkg/multideck/
+          tar -czf dist/multideck-linux-x86_64.tar.gz -C pkg multideck
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*
+          retention-days: 14
+
+  windows:
+    name: windows
+    needs: [metadata]
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cross toolchain
+        shell: bash
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends mingw-w64 zip
+          rustup target add x86_64-pc-windows-gnu
+
+      - name: Build
+        shell: bash
+        run: cargo build --release -p multideck-desktop --target x86_64-pc-windows-gnu
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p pkg/multideck dist
+          cp target/x86_64-pc-windows-gnu/release/multideck.exe pkg/multideck/
+          cp README.md LICENSE pkg/multideck/
+          (cd pkg && zip -r ../dist/multideck-windows-x86_64.zip multideck)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+          retention-days: 14
+
+  publish:
+    name: publish
+    needs: [metadata, create-release, linux, windows]
+    runs-on: docker
+    steps:
+      - name: GitHub App token
+        id: token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GTI_CI_APP_ID }}
+          private-key: ${{ secrets.GTI_CI_APP_PRIVATE_KEY }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Upload the assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends jq curl
+
+          release_id=$(curl -sS \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GH_REPO/releases/tags/$TAG" | jq -r '.id')
+          if [ -z "$release_id" ] || [ "$release_id" = "null" ]; then
+            echo "release $TAG not found"
+            exit 1
+          fi
+
+          for file in dist/*; do
+            name="$(basename "$file")"
+            existing=$(curl -sS \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$GH_REPO/releases/$release_id/assets" \
+              | jq -r ".[] | select(.name == \"$name\") | .id")
+            if [ -n "$existing" ]; then
+              curl -sS -o /dev/null -X DELETE \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                "https://api.github.com/repos/$GH_REPO/releases/assets/$existing"
+            fi
+            curl -sS -o /dev/null -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$file" \
+              "https://uploads.github.com/repos/$GH_REPO/releases/$release_id/assets?name=$name"
+            echo "uploaded $name"
+          done
