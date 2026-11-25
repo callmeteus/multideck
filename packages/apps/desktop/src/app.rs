@@ -22,6 +22,9 @@ use tokio::sync::broadcast;
 
 use crate::seed;
 
+/// Slots exposed by the free Stream Deck Mobile plan on its 5x3 keypad.
+pub(crate) const FREE_SLOTS: [usize; 6] = [0, 1, 2, 5, 6, 7];
+
 /// Which screen is visible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -785,7 +788,6 @@ impl App {
         // keys of the first two rows, so the actions have to land on the real
         // phone indexes: 0..2 and 5..7. Shrinking our grid to 3x2 put keys on
         // indexes 3 and 4, which the free app does not accept.
-        const FREE_SLOTS: [usize; 6] = [0, 1, 2, 5, 6, 7];
         let mut profile = Profile::new(i18n::tr!("profile_free_mobile"), &self.caps);
         profile.brightness = self.profile.brightness;
         let source: Vec<_> = self

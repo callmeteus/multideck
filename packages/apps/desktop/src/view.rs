@@ -9,7 +9,7 @@ use multideck_actions as actions;
 use multideck_i18n::{Locale, tr, tr_args};
 use multideck_ui::Colors;
 
-use crate::app::{App, Message, Screen};
+use crate::app::{App, FREE_SLOTS, Message, Screen};
 
 fn logo() -> svg::Handle {
     static HANDLE: std::sync::OnceLock<svg::Handle> = std::sync::OnceLock::new();
@@ -413,12 +413,10 @@ fn header(app: &App) -> Element<'_, Message> {
 }
 
 fn grid(app: &App) -> Element<'_, Message> {
-    // A free phone only accepts the first three keys of the first two rows,
-    // which are indexes 0..2 and 5..7 in its 5x3 keypad (the app keeps five
-    // columns even on the free plan).
-    const FREE_SLOTS: [u8; 6] = [0, 1, 2, 5, 6, 7];
+    // A free phone only accepts the first three keys of the first two rows.
+    // The shared constant keeps the visible grid and the profile rewrite aligned.
     let keys: Vec<u8> = if app.free_layout {
-        FREE_SLOTS.to_vec()
+        FREE_SLOTS.iter().map(|key| *key as u8).collect()
     } else {
         (0..app.caps.key_count()).collect()
     };

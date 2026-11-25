@@ -88,6 +88,27 @@ fn queued_presses_wait_for_the_current_delay() {
 }
 
 #[test]
+fn free_layout_uses_the_shared_phone_slots() {
+    let _guard = DATA_DIR_LOCK.lock().expect("data dir lock");
+    let (_directory, mut app) = test_app();
+    for (index, percent) in (0..6).enumerate() {
+        app.profile.slot_mut(index as u8).expect("slot").action =
+            Some(brightness_action(percent + 1));
+    }
+
+    app.apply_free_layout();
+
+    for (index, slot) in app.profile.active_page().slots.iter().enumerate() {
+        assert_eq!(
+            slot.action.is_some(),
+            FREE_SLOTS.contains(&index),
+            "unexpected action placement on slot {index}"
+        );
+    }
+    assert_eq!(FREE_SLOTS, [0, 1, 2, 5, 6, 7]);
+}
+
+#[test]
 fn pressing_a_key_runs_its_action_and_renders_all_keys() {
     let _guard = DATA_DIR_LOCK.lock().expect("data dir lock");
     let (directory, mut app) = test_app();
