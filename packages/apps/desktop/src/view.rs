@@ -896,8 +896,35 @@ fn settings(app: &App) -> Element<'_, Message> {
         );
     }
 
+    let mut devices: Vec<Element<'_, Message>> = Vec::new();
+    for (kind, label) in [
+        ("mobile", tr!("devices_mobile")),
+        ("virtual", tr!("devices_virtual")),
+        ("usb", tr!("devices_usb")),
+    ] {
+        devices.push(
+            button(text(label).size(12))
+                .on_press(Message::SelectDevice(kind.to_string()))
+                .padding(8)
+                .style(multideck_ui::toggle_button(app.device_kind == kind))
+                .into(),
+        );
+    }
+
     let content = column![
         text(tr!("settings_title")).size(20),
+        container(
+            column![
+                text(tr!("settings_device")).size(14),
+                text(tr!("settings_device_desc"))
+                    .size(10)
+                    .color(Colors::MUTED),
+                Row::with_children(devices).spacing(8),
+            ]
+            .spacing(8),
+        )
+        .padding(14)
+        .style(multideck_ui::card()),
         container(
             column![
                 text(tr!("settings_language")).size(14),

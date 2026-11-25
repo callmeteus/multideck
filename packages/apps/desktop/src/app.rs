@@ -69,6 +69,8 @@ pub enum Message {
     CursorMoved(f32, f32),
     /// Filters the action palette.
     PaletteQuery(String),
+    /// Switches the deck the host drives.
+    SelectDevice(String),
     /// Marks an element as hovered.
     Hover(String),
     /// Clears the hovered element.
@@ -174,8 +176,73 @@ pub struct App {
     deck: Option<VirtualDeck>,
     mobile: Option<MobileDeck>,
     mobile_port: Option<u16>,
+    pub(crate) device_kind: String,
     #[allow(dead_code)]
     device: ConnectedDevice,
+}
+
+type BuiltDevice = (
+    DeviceDescriptor,
+    Option<VirtualDeck>,
+    Box<dyn DeviceAdapter>,
+    Option<MobileDeck>,
+);
+
+fn device_kind(deck: &Option<VirtualDeck>, mobile: &Option<MobileDeck>) -> &'static str {
+    if mobile.is_some() {
+        "mobile"
+    } else if deck.is_some() {
+        "virtual"
+    } else {
+        "usb"
+    }
+}
+
+fn build_device(store: &mut Store, requested: &str) -> Result<BuiltDevice, String> {
+    let detected = if requested == "virtual" || requested == "mobile" {
+        Vec::new()
+    } else {
+        multideck_device_elgato::discover()
+    };
+
+    if requested == "mobile" {
+        let workstation_id = if store.settings().mobile_workstation_id.is_empty() {
+            let generated = multideck_device_sdmobile::generate_workstation_id();
+            store
+                .update_settings(|settings| {
+                    settings.mobile_workstation_id = generated.clone();
+                })
+                .map_err(|error| error.to_string())?;
+            generated
+        } else {
+            store.settings().mobile_workstation_id.clone()
+        };
+        let hostname = std::env::var("COMPUTERNAME")
+            .or_else(|_| std::env::var("HOSTNAME"))
+            .unwrap_or_else(|_| "multideck".to_string());
+        let mut config = MobileConfig::new(workstation_id, hostname);
+        config.trust_file = Some(store.paths().root().join("mobile_trusted.txt"));
+        config.key_file = Some(store.paths().root().join("mobile_key.txt"));
+        config.port = store.settings().mobile_port;
+        config.auto_trust = std::env::var("MULTIDECK_MOBILE_TRUST")
+            .map(|value| value == "1")
+            .unwrap_or(false);
+        let (mobile, adapter) = MobileDeck::new(config);
+        let descriptor = mobile.descriptor().clone();
+        return Ok((descriptor, None, Box::new(adapter), Some(mobile)));
+    }
+
+    match detected.into_iter().next() {
+        Some(found) => {
+            let descriptor = found.descriptor.clone();
+            Ok((descriptor, None, Box::new(found.into_adapter()), None))
+        }
+        None => {
+            let (deck, adapter) = VirtualDeck::new();
+            let descriptor = deck.descriptor().clone();
+            Ok((descriptor, Some(deck), Box::new(adapter), None))
+        }
+    }
 }
 
 impl App {
@@ -208,61 +275,20 @@ impl App {
 
         let mut store = Store::open().map_err(|error| error.to_string())?;
 
-        // The phone app is the default deck: without an explicit device the
-        // mobile host starts so the pairing button is always usable.
         let requested = std::env::var("MULTIDECK_DEVICE")
-            .unwrap_or_else(|_| "mobile".to_string())
-            .to_ascii_lowercase();
-
-        let detected = if requested == "virtual" || requested == "mobile" {
-            Vec::new()
-        } else {
-            multideck_device_elgato::discover()
-        };
-
-        let (descriptor, deck, adapter, mobile): (
-            DeviceDescriptor,
-            Option<VirtualDeck>,
-            Box<dyn DeviceAdapter>,
-            Option<MobileDeck>,
-        ) = if requested == "mobile" {
-            let workstation_id = if store.settings().mobile_workstation_id.is_empty() {
-                let generated = multideck_device_sdmobile::generate_workstation_id();
-                store
-                    .update_settings(|settings| {
-                        settings.mobile_workstation_id = generated.clone();
-                    })
-                    .map_err(|error| error.to_string())?;
-                generated
-            } else {
-                store.settings().mobile_workstation_id.clone()
-            };
-            let hostname = std::env::var("COMPUTERNAME")
-                .or_else(|_| std::env::var("HOSTNAME"))
-                .unwrap_or_else(|_| "multideck".to_string());
-            let mut config = MobileConfig::new(workstation_id, hostname);
-            config.trust_file = Some(store.paths().root().join("mobile_trusted.txt"));
-            config.key_file = Some(store.paths().root().join("mobile_key.txt"));
-            config.port = store.settings().mobile_port;
-            config.auto_trust = std::env::var("MULTIDECK_MOBILE_TRUST")
-                .map(|value| value == "1")
-                .unwrap_or(false);
-            let (mobile, adapter) = MobileDeck::new(config);
-            let descriptor = mobile.descriptor().clone();
-            (descriptor, None, Box::new(adapter), Some(mobile))
-        } else {
-            match detected.into_iter().next() {
-                Some(found) => {
-                    let descriptor = found.descriptor.clone();
-                    (descriptor, None, Box::new(found.into_adapter()), None)
+            .ok()
+            .map(|value| value.to_ascii_lowercase())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| {
+                let saved = store.settings().device.clone();
+                if saved.is_empty() {
+                    "mobile".to_string()
+                } else {
+                    saved
                 }
-                None => {
-                    let (deck, adapter) = VirtualDeck::new();
-                    let descriptor = deck.descriptor().clone();
-                    (descriptor, Some(deck), Box::new(adapter), None)
-                }
-            }
-        };
+            });
+        let (descriptor, deck, adapter, mobile) = build_device(&mut store, &requested)?;
+        let device_kind = device_kind(&deck, &mobile).to_string();
 
         let mobile_interfaces = if mobile.is_some() {
             multideck_device_sdmobile::interfaces()
@@ -365,6 +391,7 @@ impl App {
             deck,
             mobile,
             mobile_port: None,
+            device_kind,
             device,
         })
     }
@@ -516,6 +543,7 @@ impl App {
             }
             Message::CursorMoved(x, y) => self.cursor = (x, y),
             Message::PaletteQuery(query) => self.palette_query = query,
+            Message::SelectDevice(kind) => self.switch_device(kind),
             Message::Hover(id) => self.hover = Some(id),
             Message::Unhover => self.hover = None,
             Message::CloseProfileMenu => self.profile_menu = None,
@@ -876,6 +904,62 @@ impl App {
             self.adopt(next);
         }
         self.status = i18n::tr!("status_saved");
+    }
+
+    fn switch_device(&mut self, kind: String) {
+        let kind = kind.to_ascii_lowercase();
+        let previous = self.device_descriptor.id.clone();
+        self.device.task.abort();
+        match build_device(&mut self.store, &kind) {
+            Ok((descriptor, deck, adapter, mobile)) => {
+                self.device = multideck_events::connect(adapter, &self.bus, self.runtime.handle());
+                self.device_kind = device_kind(&deck, &mobile).to_string();
+                self.device_descriptor = descriptor.clone();
+                self.caps = descriptor.caps.clone();
+                self.deck = deck;
+                self.mobile = mobile;
+                self.mobile_interfaces = if self.mobile.is_some() {
+                    multideck_device_sdmobile::interfaces()
+                } else {
+                    Vec::new()
+                };
+                let saved = self.store.settings().mobile_address.clone();
+                self.mobile_address = if self.mobile.is_some()
+                    && !saved.is_empty()
+                    && self
+                        .mobile_interfaces
+                        .iter()
+                        .any(|interface| interface.address == saved)
+                {
+                    Some(saved)
+                } else if self.mobile.is_some() {
+                    self.mobile_interfaces
+                        .first()
+                        .map(|interface| interface.address.clone())
+                } else {
+                    None
+                };
+                self.mobile_port = None;
+                self.mobile_connected = false;
+                self.mobile_pro = None;
+                self.pairing_code = None;
+                self.qr = None;
+                self.show_pairing = false;
+                let _ = self.store.update_settings(|settings| {
+                    settings.device = self.device_kind.clone();
+                });
+                let mut profile = self.profile.clone();
+                profile.fit_to(&self.caps);
+                self.adopt(profile);
+                self.refresh();
+                self.status = i18n::tr!("status_device_changed");
+                tracing::info!(previous, device = %self.device_descriptor.id, "device switched");
+            }
+            Err(error) => {
+                tracing::warn!(%error, "could not switch the device");
+                self.status = i18n::tr_args("errors_save_failed", &[("reason", error.to_string())]);
+            }
+        }
     }
 
     fn new_profile(&mut self) {

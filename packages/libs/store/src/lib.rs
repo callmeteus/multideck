@@ -100,6 +100,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_device() -> String {
+    "mobile".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     /// Locale tag; empty means "detect from the system".
@@ -126,6 +130,9 @@ pub struct Settings {
     /// Whether the editor shows only the six keys a free phone can use.
     #[serde(default)]
     pub mobile_free_layout: bool,
+    /// Device the host drives: `mobile`, `virtual` or `usb`.
+    #[serde(default = "default_device")]
+    pub device: String,
 }
 
 fn default_brightness() -> u8 {
@@ -143,6 +150,7 @@ impl Default for Settings {
             mobile_port: 0,
             mobile_free_notice: true,
             mobile_free_layout: false,
+            device: default_device(),
         }
     }
 }
