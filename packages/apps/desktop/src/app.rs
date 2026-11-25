@@ -7,7 +7,9 @@ use std::time::Duration;
 use iced::Task;
 use iced::widget::image::Handle as ImageHandle;
 use multideck_actions::{self as actions, Effect};
-use multideck_core::{ActionInstance, DeviceCaps, DeviceCommand, DeviceDescriptor, Profile};
+use multideck_core::{
+    ActionInstance, DeviceCaps, DeviceCommand, DeviceDescriptor, DeviceInput, Profile,
+};
 use multideck_device_api::DeviceAdapter;
 use multideck_device_sdmobile::{MobileConfig, MobileDeck};
 use multideck_device_virtual::VirtualDeck;
@@ -99,6 +101,7 @@ pub struct App {
     pub(crate) pending_kind: Option<&'static str>,
     pub(crate) dragging: Option<&'static str>,
     pub(crate) pending_delete: Option<u8>,
+    pub(crate) queued_press: VecDeque<u8>,
     pub(crate) pairing_code: Option<String>,
     pub(crate) inspector: Vec<(String, String)>,
     pub(crate) key_images: Vec<Option<ImageHandle>>,
@@ -106,6 +109,7 @@ pub struct App {
     pub(crate) data_dir: PathBuf,
     pub(crate) device_descriptor: DeviceDescriptor,
     pending_effects: VecDeque<Effect>,
+    effects_waiting: bool,
     watcher: Option<ProfileWatcher>,
     #[cfg(windows)]
     tray: Option<std::sync::mpsc::Receiver<crate::tray::TrayCommand>>,
@@ -248,6 +252,7 @@ impl App {
             pending_kind: None,
             dragging: None,
             pending_delete: None,
+            queued_press: VecDeque::new(),
             pairing_code: None,
             inspector: Vec::new(),
             key_images: Vec::new(),
@@ -255,6 +260,7 @@ impl App {
             data_dir,
             device_descriptor: descriptor,
             pending_effects: VecDeque::new(),
+            effects_waiting: false,
             watcher: store.watch_profiles().ok(),
             #[cfg(windows)]
             tray,
@@ -308,6 +314,10 @@ impl App {
         match message {
             Message::Poll => {
                 self.drain_events();
+                let task = self.run_queued_presses();
+                if self.effects_waiting {
+                    return task;
+                }
                 if self.watcher.as_ref().is_some_and(ProfileWatcher::changed) {
                     self.reload_from_disk();
                 }
@@ -368,7 +378,7 @@ impl App {
             Message::SelectProfile(id) => self.load_profile(&id),
             Message::NewProfile => self.new_profile(),
             Message::PressKey(key) => return self.press(key),
-            Message::EffectsReady => return self.run_pending(),
+            Message::EffectsReady => return self.resume_pending(),
             Message::StartDrag(kind) => {
                 self.dragging = Some(kind);
                 self.status = i18n::tr!("editor_drag_hint");
@@ -421,6 +431,10 @@ impl App {
                     self.status = format!("{device} disconnected");
                 }
                 Ok(AppEvent::Status(status)) if !status.is_empty() => self.status = status,
+                Ok(AppEvent::Input {
+                    input: DeviceInput::KeyDown { key },
+                    ..
+                }) => self.queued_press.push_back(key),
                 Ok(_) => {}
                 Err(broadcast::error::TryRecvError::Empty) => break,
                 Err(broadcast::error::TryRecvError::Closed) => break,
@@ -632,10 +646,30 @@ impl App {
         }
     }
 
+    fn run_queued_presses(&mut self) -> Task<Message> {
+        while let Some(key) = self.queued_press.pop_front() {
+            let task = self.press(key);
+            if self.effects_waiting {
+                return task;
+            }
+        }
+        Task::none()
+    }
+
+    fn resume_pending(&mut self) -> Task<Message> {
+        self.effects_waiting = false;
+        let task = self.run_pending();
+        if self.effects_waiting {
+            return task;
+        }
+        self.run_queued_presses()
+    }
+
     fn run_pending(&mut self) -> Task<Message> {
         while let Some(effect) = self.pending_effects.pop_front() {
             match effect {
                 Effect::Delay(millis) if millis > 0 => {
+                    self.effects_waiting = true;
                     return Task::perform(
                         async move { tokio::time::sleep(Duration::from_millis(millis)).await },
                         |_| Message::EffectsReady,
@@ -645,6 +679,7 @@ impl App {
                 other => self.apply_effect(other),
             }
         }
+        self.effects_waiting = false;
         Task::none()
     }
 
@@ -713,55 +748,4 @@ impl App {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn seeded_profile_has_actions() {
-        let caps = DeviceCaps::default();
-        let mut profile = Profile::new("test", &caps);
-        seed::apply(&mut profile);
-        let actions = profile
-            .active_page()
-            .slots
-            .iter()
-            .filter(|slot| slot.action.is_some())
-            .count();
-        assert_eq!(actions, 6);
-    }
-
-    #[test]
-    fn pressing_a_key_runs_its_action_and_renders_all_keys() {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let marker = directory.path().join("marker.txt");
-        // SAFETY: this test binary has a single test that reads the environment,
-        // and it runs before the assertion below. No other test depends on it.
-        unsafe {
-            std::env::set_var("MULTIDECK_DATA_DIR", directory.path().join("data"));
-        }
-
-        let mut app = App::new().expect("app");
-        app.refresh();
-        assert_eq!(app.key_images.len(), app.caps.key_count() as usize);
-        assert!(app.key_images.iter().all(Option::is_some));
-
-        let mut action = ActionInstance::new("command");
-        action.set(
-            "command",
-            json!(format!("echo ok>\"{}\"", marker.display())),
-        );
-        app.profile.slot_mut(0).expect("slot").action = Some(action);
-
-        let _ = app.press(0);
-
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while !marker.exists() && std::time::Instant::now() < deadline {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-        assert!(
-            marker.exists(),
-            "the command action should have written a file, status: {}",
-            app.status
-        );
-    }
-}
+mod tests;
