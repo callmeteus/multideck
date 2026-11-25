@@ -105,7 +105,7 @@ sequenceDiagram
   App->>Device: DeviceCommand::SetKeyImage
 ```
 
-The UI polls the bus on a timer instead of owning a subscriber task. That keeps the iced update loop synchronous and makes the event order testable: a test can push a virtual key and read the bus.
+The UI polls the bus on a timer instead of owning a subscriber task. That keeps the iced update loop synchronous and makes the event order testable: a test can push a virtual key and read the bus. `KeyDown` events wait in a `VecDeque<u8>` so every press survives until its turn. If an action returns a delay, the queue stops and resumes from `EffectsReady` after the delay completes.
 
 ## Device adapter contract
 
