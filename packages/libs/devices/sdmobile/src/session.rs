@@ -1,41 +1,67 @@
 //! One WebSocket session with a Stream Deck Mobile client.
 
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
-use image::{ImageEncoder, RgbaImage};
+use image::RgbaImage;
 use multideck_core::DeviceInput;
 use prost::Message;
 use tokio::net::TcpStream;
+use tokio::sync::Notify;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
+use crate::PairingState;
 use crate::Shared;
 use crate::proto;
 
+mod icon;
+
+use icon::encode_icon;
+
 const PROTOCOL_VERSION: u32 = 3;
+const PAIRING_TIMEOUT: Duration = Duration::from_secs(120);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionPhase {
+    AwaitingHello,
+    AwaitingAuthentication,
+    Authenticated,
+}
 
 struct SessionState {
+    phase: SessionPhase,
+    trusted: bool,
     opened: bool,
-    authenticated: bool,
     counted: bool,
     icon_size: (u32, u32),
     formats: Vec<i32>,
     cipher: Option<crypto_box::SalsaBox>,
     client_key: Vec<u8>,
+    pairing_id: Option<u64>,
+    pairing_decision: Option<Arc<StdMutex<Option<bool>>>>,
+    pairing_notify: Option<Arc<Notify>>,
+    pending_authenticate: Option<u32>,
 }
 
 impl SessionState {
     fn new(width: u16, height: u16) -> Self {
         Self {
+            phase: SessionPhase::AwaitingHello,
+            trusted: false,
             opened: false,
-            authenticated: false,
             counted: false,
             icon_size: (width as u32, height as u32),
             formats: Vec::new(),
             cipher: None,
             client_key: Vec::new(),
+            pairing_id: None,
+            pairing_decision: None,
+            pairing_notify: None,
+            pending_authenticate: None,
         }
     }
 
@@ -135,6 +161,15 @@ pub(crate) async fn run(socket: TcpStream, shared: Arc<Shared>) {
                     send_icon(&mut ws, &state, key, &image).await;
                 }
             }
+            decision = wait_for_pairing(
+                state.pending_authenticate.is_some(),
+                state.pairing_notify.clone(),
+                state.pairing_decision.clone(),
+            ) => {
+                if let Some(request_id) = state.pending_authenticate.take() {
+                    finish_authentication(&mut ws, &shared, &mut state, request_id, decision).await;
+                }
+            }
             _ = keepalive.tick() => {
                 // The phone drops the socket when it receives no data frame for
                 // ten seconds ("receive timeout"). An empty Ok is ignored by its
@@ -152,6 +187,9 @@ pub(crate) async fn run(socket: TcpStream, shared: Arc<Shared>) {
         }
     }
 
+    if let Some(id) = state.pairing_id {
+        crate::clear_pending_pairing(&shared, id);
+    }
     if state.counted {
         shared.connected.fetch_sub(1, Ordering::Relaxed);
     }
@@ -180,6 +218,82 @@ async fn send_plain(ws: &mut WebSocketStream<TcpStream>, message: &proto::Server
     if let Err(error) = ws.send(WsMessage::Binary(bytes.into())).await {
         tracing::debug!(%error, "could not send a mobile reply");
     }
+}
+
+async fn wait_for_pairing(
+    enabled: bool,
+    notify: Option<Arc<Notify>>,
+    decision: Option<Arc<StdMutex<Option<bool>>>>,
+) -> Option<bool> {
+    if !enabled {
+        std::future::pending::<Option<bool>>().await;
+    }
+    let (Some(notify), Some(decision)) = (notify, decision) else {
+        return None;
+    };
+    if let Some(value) = decision.lock().ok().and_then(|decision| *decision) {
+        return Some(value);
+    }
+    if tokio::time::timeout(PAIRING_TIMEOUT, notify.notified())
+        .await
+        .is_err()
+    {
+        return None;
+    }
+    decision.lock().ok().and_then(|decision| *decision)
+}
+
+async fn finish_authentication(
+    ws: &mut WebSocketStream<TcpStream>,
+    shared: &Arc<Shared>,
+    state: &mut SessionState,
+    request_id: u32,
+    decision: Option<bool>,
+) {
+    if let Some(id) = state.pairing_id.take() {
+        crate::clear_pending_pairing(shared, id);
+    }
+    state.pairing_decision = None;
+    state.pairing_notify = None;
+
+    let reply = if decision.unwrap_or(false) {
+        state.phase = SessionPhase::Authenticated;
+        if !state.counted {
+            state.counted = true;
+            shared.connected.fetch_add(1, Ordering::Relaxed);
+        }
+        if !state.trusted {
+            crate::remember_trust(shared, &state.client_key);
+        }
+        tracing::info!("mobile pairing accepted");
+        proto::ServerMessage {
+            payload: Some(proto::server_message::Payload::Ok(proto::Ok { request_id })),
+        }
+    } else {
+        tracing::info!("mobile pairing rejected or timed out");
+        proto::ServerMessage {
+            payload: Some(proto::server_message::Payload::Error(proto::Error {
+                request_id,
+                code: proto::error::Code::AuthenticationRejected as i32,
+                reason: Some("the pairing request was not confirmed".into()),
+            })),
+        }
+    };
+    send(ws, state, &reply).await;
+    if state.phase == SessionPhase::Authenticated {
+        send_device_list(ws, state, shared).await;
+    }
+}
+
+async fn reject_unauthorized(ws: &mut WebSocketStream<TcpStream>, state: &SessionState) {
+    let reply = proto::ServerMessage {
+        payload: Some(proto::server_message::Payload::Error(proto::Error {
+            request_id: 0,
+            code: proto::error::Code::AuthenticationRejected as i32,
+            reason: Some("authenticate before using the mobile device".into()),
+        })),
+    };
+    send(ws, state, &reply).await;
 }
 
 fn encrypt_frame(cipher: &crypto_box::SalsaBox, plain: &[u8]) -> Vec<u8> {
@@ -220,6 +334,16 @@ async fn handle(
 
     match payload {
         proto::client_message::Payload::Hello(hello) => {
+            if let Some(id) = state.pairing_id.take() {
+                crate::clear_pending_pairing(shared, id);
+            }
+            state.pending_authenticate = None;
+            state.pairing_decision = None;
+            state.pairing_notify = None;
+            state.phase = SessionPhase::AwaitingHello;
+            state.trusted = false;
+            state.client_key = hello.public_key.clone();
+
             let code = pairing_code(&hello.public_key);
             let name = hello
                 .client_information
@@ -233,20 +357,21 @@ async fn handle(
                 server_key = %hex_string(&shared.public_key),
                 "mobile client introduced itself"
             );
-            state.authenticated =
-                shared.config.auto_trust || crate::is_trusted(shared, &hello.public_key);
-            if !state.authenticated
-                && let Ok(mut pairing) = shared.pairing.lock()
-            {
-                *pairing = Some(crate::PairingState {
-                    code: code.clone(),
-                    client_key: hello.public_key.clone(),
-                    decision: None,
-                });
-            }
 
-            state.client_key = hello.public_key.clone();
             if hello.public_key.len() == 32 {
+                state.trusted =
+                    shared.config.auto_trust || crate::is_trusted(shared, &hello.public_key);
+                state.phase = SessionPhase::AwaitingAuthentication;
+                if !state.trusted {
+                    let pairing = PairingState::new(code, hello.public_key.clone());
+                    state.pairing_id = Some(pairing.id);
+                    state.pairing_decision = Some(Arc::clone(&pairing.decision));
+                    state.pairing_notify = Some(Arc::clone(&pairing.notify));
+                    if let Ok(mut pending) = shared.pairing.lock() {
+                        *pending = Some(pairing);
+                    }
+                }
+
                 let mut client_public = [0u8; 32];
                 client_public.copy_from_slice(&hello.public_key);
                 let secret = crypto_box::SecretKey::from(shared.secret_key);
@@ -254,6 +379,11 @@ async fn handle(
                     &crypto_box::PublicKey::from(client_public),
                     &secret,
                 ));
+            } else {
+                tracing::warn!(
+                    bytes = hello.public_key.len(),
+                    "mobile client sent an invalid key"
+                );
             }
 
             let port = shared.port.borrow().unwrap_or(0);
@@ -279,72 +409,59 @@ async fn handle(
             send_device_list(ws, state, shared).await;
         }
         proto::client_message::Payload::Authenticate(request) => {
-            let mut accepted = state.authenticated;
-            let pending_key = shared
-                .pairing
-                .lock()
-                .ok()
-                .and_then(|pairing| pairing.as_ref().map(|state| state.client_key.clone()));
             tracing::info!(
                 request_id = request.request_id,
-                already_authenticated = state.authenticated,
-                has_pending_pairing = pending_key.is_some(),
+                phase = ?state.phase,
+                trusted = state.trusted,
                 "mobile client asked to authenticate"
             );
-            if !accepted {
-                for _ in 0..1200 {
-                    let decision = shared
-                        .pairing
-                        .lock()
-                        .ok()
-                        .and_then(|pairing| pairing.as_ref().and_then(|state| state.decision));
-                    if let Some(decision) = decision {
-                        accepted = decision;
-                        break;
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                }
-                if let Ok(mut pairing) = shared.pairing.lock() {
-                    *pairing = None;
-                }
-            }
-
-            let reply = if accepted {
-                state.authenticated = true;
-                tracing::info!("mobile pairing accepted");
-                if !state.counted {
-                    state.counted = true;
-                    shared.connected.fetch_add(1, Ordering::Relaxed);
-                }
-                if let Some(key) = pending_key.as_deref() {
-                    crate::remember_trust(shared, key);
-                }
-                proto::ServerMessage {
+            if state.phase == SessionPhase::Authenticated {
+                let reply = proto::ServerMessage {
                     payload: Some(proto::server_message::Payload::Ok(proto::Ok {
                         request_id: request.request_id,
                     })),
-                }
+                };
+                send(ws, state, &reply).await;
+                send_device_list(ws, state, shared).await;
+            } else if state.phase == SessionPhase::AwaitingAuthentication && state.trusted {
+                finish_authentication(ws, shared, state, request.request_id, Some(true)).await;
+            } else if state.phase == SessionPhase::AwaitingAuthentication
+                && state.pairing_decision.is_some()
+            {
+                state.pending_authenticate = Some(request.request_id);
             } else {
-                proto::ServerMessage {
+                let reply = proto::ServerMessage {
                     payload: Some(proto::server_message::Payload::Error(proto::Error {
                         request_id: request.request_id,
                         code: proto::error::Code::AuthenticationRejected as i32,
-                        reason: Some("the pairing request was not confirmed".into()),
+                        reason: Some("say hello before authenticating".into()),
                     })),
-                }
-            };
-            send(ws, state, &reply).await;
-            if state.authenticated {
-                send_device_list(ws, state, shared).await;
+                };
+                send(ws, state, &reply).await;
             }
         }
         proto::client_message::Payload::CancelAuthenticate(request) => {
+            state.pending_authenticate = None;
+            if let Some(id) = state.pairing_id.take() {
+                crate::clear_pending_pairing(shared, id);
+            }
+            state.pairing_decision = None;
+            state.pairing_notify = None;
             let reply = proto::ServerMessage {
                 payload: Some(proto::server_message::Payload::Ok(proto::Ok {
                     request_id: request.request_id,
                 })),
             };
             send(ws, state, &reply).await;
+        }
+        proto::client_message::Payload::CreateVirtualDevice(_)
+        | proto::client_message::Payload::OpenVirtualDevice(_)
+        | proto::client_message::Payload::UpdateKeypadConfig(_)
+        | proto::client_message::Payload::KeyPress(_)
+        | proto::client_message::Payload::DeleteVirtualDevice(_)
+            if state.phase != SessionPhase::Authenticated =>
+        {
+            reject_unauthorized(ws, state).await;
         }
         proto::client_message::Payload::CreateVirtualDevice(create) => {
             if let Some(config) = &create.keypad_config {
@@ -497,84 +614,6 @@ async fn send_icon(
         })),
     };
     send(ws, state, &reply).await;
-}
-
-fn encode_icon(source: &RgbaImage, state: &SessionState) -> Option<proto::Image> {
-    let (width, height) = state.icon_size;
-    if width == 0 || height == 0 {
-        return None;
-    }
-    let scaled = if source.width() == width && source.height() == height {
-        source.clone()
-    } else {
-        image::imageops::resize(source, width, height, image::imageops::FilterType::Lanczos3)
-    };
-
-    let supported = |format: proto::ImageFormat| {
-        state.formats.is_empty() || state.formats.contains(&(format as i32))
-    };
-    let (format, bytes, row_bytes) = if supported(proto::ImageFormat::Png) {
-        (proto::ImageFormat::Png, encode_png(&scaled)?, 0)
-    } else if supported(proto::ImageFormat::Jpg) {
-        (proto::ImageFormat::Jpg, encode_jpeg(&scaled)?, 0)
-    } else if supported(proto::ImageFormat::Bmp) {
-        (proto::ImageFormat::Bmp, encode_bmp(&scaled)?, 0)
-    } else if supported(proto::ImageFormat::Lz4) {
-        let raw = scaled.into_raw();
-        let compressed = lz4_flex::compress(&raw);
-        (proto::ImageFormat::Lz4, compressed, width * 4)
-    } else {
-        tracing::warn!("phone offered no supported image format; falling back to PNG");
-        (proto::ImageFormat::Png, encode_png(&scaled)?, 0)
-    };
-
-    Some(proto::Image {
-        format: format as i32,
-        r#type: proto::ImageType::Opaque as i32,
-        size: Some(proto::Size { width, height }),
-        row_bytes,
-        image: bytes,
-    })
-}
-
-fn encode_png(image: &RgbaImage) -> Option<Vec<u8>> {
-    let mut buffer = Vec::new();
-    image::codecs::png::PngEncoder::new(&mut buffer)
-        .write_image(
-            image.as_raw(),
-            image.width(),
-            image.height(),
-            image::ExtendedColorType::Rgba8,
-        )
-        .ok()?;
-    Some(buffer)
-}
-
-fn encode_jpeg(image: &RgbaImage) -> Option<Vec<u8>> {
-    let mut buffer = Vec::new();
-    let rgb = image::DynamicImage::ImageRgba8(image.clone()).to_rgb8();
-    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buffer, 92)
-        .encode(
-            rgb.as_raw(),
-            rgb.width(),
-            rgb.height(),
-            image::ExtendedColorType::Rgb8,
-        )
-        .ok()?;
-    Some(buffer)
-}
-
-fn encode_bmp(image: &RgbaImage) -> Option<Vec<u8>> {
-    let mut buffer = Vec::new();
-    image::codecs::bmp::BmpEncoder::new(&mut buffer)
-        .write_image(
-            image.as_raw(),
-            image.width(),
-            image.height(),
-            image::ExtendedColorType::Rgba8,
-        )
-        .ok()?;
-    Some(buffer)
 }
 
 fn hex_string(bytes: &[u8]) -> String {
