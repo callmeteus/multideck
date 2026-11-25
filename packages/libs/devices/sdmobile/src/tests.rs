@@ -152,8 +152,8 @@ async fn speaks_the_vsd2_handshake_and_reports_keys() {
     assert_eq!(server.workstation_id, "TESTWORKSTATION00000");
     assert_eq!(server.protocol_version, 3);
     assert!(
-        server.client_needs_authentication,
-        "the client always authenticates; trust is decided on the server"
+        !server.client_needs_authentication,
+        "a trusted client opens the device without authenticating"
     );
     let list = next_server(&mut ws, Some(&shared)).await;
     assert!(matches!(
@@ -593,6 +593,94 @@ async fn sends_the_stored_snapshot_when_the_device_opens() {
         panic!("expected the stored icon after opening the device");
     };
     assert_eq!(icon.index, 3);
+
+    drop(command_tx);
+    task.abort();
+}
+
+#[tokio::test]
+async fn a_trusted_client_opens_without_authenticating() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let (client_public, client_secret) = client_keys(13);
+    let trust_file = directory.path().join("mobile_trusted.txt");
+    std::fs::write(
+        &trust_file,
+        client_public
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>(),
+    )
+    .expect("trust file");
+
+    let mut config = MobileConfig::new("TRUSTEDTEST000000000", "trusted-host");
+    config.auto_trust = false;
+    config.trust_file = Some(trust_file);
+    let (deck, adapter) = MobileDeck::new(config);
+    let mut ports = deck.port_receiver();
+    let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (input_tx, _input_rx) = tokio::sync::mpsc::unbounded_channel();
+    let task = tokio::spawn(async move {
+        let _ = Box::new(adapter).run(command_rx, input_tx).await;
+    });
+    let port = loop {
+        if let Some(port) = *ports.borrow() {
+            break port;
+        }
+        ports.changed().await.expect("port sender alive");
+    };
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
+        .await
+        .expect("connect");
+    let hello = proto::ClientMessage {
+        payload: Some(proto::client_message::Payload::Hello(
+            proto::HelloFromClient {
+                public_key: client_public,
+                client_information: Some(proto::ClientInformation {
+                    name: "Trusted phone".into(),
+                    user_agent: "Stream Deck Mobile/2.1.2".into(),
+                    protocol_version: 3,
+                    ..Default::default()
+                }),
+            },
+        )),
+    };
+    ws.send(WsMessage::Binary(hello.encode_to_vec().into()))
+        .await
+        .expect("send hello");
+    let reply = next_server(&mut ws, None).await;
+    let Some(proto::server_message::Payload::Hello(server)) = reply.payload else {
+        panic!("expected HelloFromServer");
+    };
+    assert!(!server.client_needs_authentication);
+    let shared = shared_box(&server.public_key, &client_secret);
+    let list = next_server(&mut ws, Some(&shared)).await;
+    assert!(matches!(
+        list.payload,
+        Some(proto::server_message::Payload::VirtualDeviceList(_))
+    ));
+
+    let open = proto::ClientMessage {
+        payload: Some(proto::client_message::Payload::OpenVirtualDevice(
+            proto::OpenVirtualDevice {
+                request_id: 4,
+                device_id: "multideck".into(),
+                keypad_config: None,
+            },
+        )),
+    };
+    ws.send(WsMessage::Binary(seal(&shared, 1, &open).into()))
+        .await
+        .expect("send open");
+    let reply = next_server(&mut ws, Some(&shared)).await;
+    assert!(
+        matches!(
+            reply.payload,
+            Some(proto::server_message::Payload::VirtualDeviceOpened(_))
+        ),
+        "unexpected reply: {:?}",
+        reply.payload
+    );
 
     drop(command_tx);
     task.abort();

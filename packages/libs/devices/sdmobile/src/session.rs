@@ -361,7 +361,14 @@ async fn handle(
             if hello.public_key.len() == 32 {
                 state.trusted =
                     shared.config.auto_trust || crate::is_trusted(shared, &hello.public_key);
-                state.phase = SessionPhase::AwaitingAuthentication;
+                state.phase = if state.trusted {
+                    SessionPhase::Authenticated
+                } else {
+                    SessionPhase::AwaitingAuthentication
+                };
+                if state.trusted {
+                    mark_connected(shared, state);
+                }
                 if !state.trusted {
                     let pairing = PairingState::new(code, hello.public_key.clone());
                     state.pairing_id = Some(pairing.id);
@@ -395,7 +402,7 @@ async fn handle(
                         version: env!("CARGO_PKG_VERSION").to_string(),
                         protocol_version: PROTOCOL_VERSION,
                         public_key: shared.public_key.to_vec(),
-                        client_needs_authentication: true,
+                        client_needs_authentication: !state.trusted,
                         os_name: Some(std::env::consts::OS.to_string()),
                         os_version: None,
                         endpoints: Some(proto::ServiceEndpoints {
