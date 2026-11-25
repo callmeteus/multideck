@@ -471,3 +471,129 @@ async fn pairing_waits_for_the_host_decision() {
     drop(command_tx);
     task.abort();
 }
+
+#[tokio::test]
+async fn sends_the_stored_snapshot_when_the_device_opens() {
+    let mut config = MobileConfig::new("SNAPSHOTTEST00000000", "snapshot-host");
+    config.auto_trust = true;
+    let (deck, adapter) = MobileDeck::new(config);
+    let mut ports = deck.port_receiver();
+    let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (input_tx, _input_rx) = tokio::sync::mpsc::unbounded_channel();
+
+    let task = tokio::spawn(async move {
+        let _ = Box::new(adapter).run(command_rx, input_tx).await;
+    });
+    let port = loop {
+        if let Some(port) = *ports.borrow() {
+            break port;
+        }
+        ports.changed().await.expect("port sender alive");
+    };
+
+    command_tx
+        .send(multideck_core::DeviceCommand::SetKeyImage {
+            key: 3,
+            image: std::sync::Arc::new(image::RgbaImage::from_pixel(
+                32,
+                32,
+                image::Rgba([40, 80, 120, 255]),
+            )),
+        })
+        .expect("publish image");
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
+        .await
+        .expect("connect");
+    let (client_public, client_secret) = client_keys(11);
+    let hello = proto::ClientMessage {
+        payload: Some(proto::client_message::Payload::Hello(
+            proto::HelloFromClient {
+                public_key: client_public,
+                client_information: Some(proto::ClientInformation {
+                    name: "Snapshot phone".into(),
+                    user_agent: "Stream Deck Mobile/2.1.2".into(),
+                    protocol_version: 3,
+                    ..Default::default()
+                }),
+            },
+        )),
+    };
+    ws.send(WsMessage::Binary(hello.encode_to_vec().into()))
+        .await
+        .expect("send hello");
+    let reply = next_server(&mut ws, None).await;
+    let Some(proto::server_message::Payload::Hello(server)) = reply.payload else {
+        panic!("expected HelloFromServer");
+    };
+    let shared = shared_box(&server.public_key, &client_secret);
+    let list = next_server(&mut ws, Some(&shared)).await;
+    assert!(matches!(
+        list.payload,
+        Some(proto::server_message::Payload::VirtualDeviceList(_))
+    ));
+
+    let authenticate = proto::ClientMessage {
+        payload: Some(proto::client_message::Payload::Authenticate(
+            proto::Authenticate { request_id: 12 },
+        )),
+    };
+    ws.send(WsMessage::Binary(seal(&shared, 2, &authenticate).into()))
+        .await
+        .expect("send authenticate");
+    let reply = next_server(&mut ws, Some(&shared)).await;
+    assert!(matches!(
+        reply.payload,
+        Some(proto::server_message::Payload::Ok(proto::Ok {
+            request_id: 12
+        }))
+    ));
+    let list = next_server(&mut ws, Some(&shared)).await;
+    assert!(matches!(
+        list.payload,
+        Some(proto::server_message::Payload::VirtualDeviceList(_))
+    ));
+
+    let open = proto::ClientMessage {
+        payload: Some(proto::client_message::Payload::OpenVirtualDevice(
+            proto::OpenVirtualDevice {
+                request_id: 9,
+                device_id: "multideck".into(),
+                keypad_config: Some(proto::KeypadConfig {
+                    supported_icon_image_formats: vec![proto::ImageFormat::Png as i32],
+                    icon_size: Some(proto::Size {
+                        width: 64,
+                        height: 64,
+                    }),
+                    high_dpi: false,
+                    overscale: false,
+                    layout_crop: None,
+                    enable_context_api: false,
+                    pressed_icon_size: None,
+                }),
+            },
+        )),
+    };
+    ws.send(WsMessage::Binary(seal(&shared, 1, &open).into()))
+        .await
+        .expect("send open");
+
+    let reply = next_server(&mut ws, Some(&shared)).await;
+    assert!(
+        matches!(
+            reply.payload,
+            Some(proto::server_message::Payload::VirtualDeviceOpened(_))
+        ),
+        "unexpected reply: {:?}",
+        reply.payload
+    );
+    let reply = next_server(&mut ws, Some(&shared)).await;
+    let Some(proto::server_message::Payload::Icon(icon)) = reply.payload else {
+        panic!("expected the stored icon after opening the device");
+    };
+    assert_eq!(icon.index, 3);
+
+    drop(command_tx);
+    task.abort();
+}

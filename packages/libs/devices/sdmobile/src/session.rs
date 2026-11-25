@@ -461,6 +461,9 @@ async fn handle(
         | proto::client_message::Payload::DeleteVirtualDevice(_)
             if state.phase != SessionPhase::Authenticated =>
         {
+            tracing::warn!(
+                "phone opened the device without authenticating; remove and re-add the computer on the tablet, or add its key to mobile_trusted.txt"
+            );
             reject_unauthorized(ws, state).await;
         }
         proto::client_message::Payload::CreateVirtualDevice(create) => {
