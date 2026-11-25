@@ -55,7 +55,7 @@ jobs:
           jwt="$header.$payload.$signature"
           installation=$(curl -sS -H "Authorization: Bearer $jwt" \
             -H "Accept: application/vnd.github+json" \
-            https://api.github.com/app/installations | jq -r '.[0].id')
+            https://api.github.com/app/installations | jq -r '.[] | select(.account.login == "callmeteus") | .id')
           token=$(curl -sS -X POST -H "Authorization: Bearer $jwt" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/app/installations/$installation/access_tokens" \
@@ -150,7 +150,7 @@ jobs:
           jwt="$header.$payload.$signature"
           installation=$(curl -sS -H "Authorization: Bearer $jwt" \
             -H "Accept: application/vnd.github+json" \
-            https://api.github.com/app/installations | jq -r '.[0].id')
+            https://api.github.com/app/installations | jq -r '.[] | select(.account.login == "callmeteus") | .id')
           token=$(curl -sS -X POST -H "Authorization: Bearer $jwt" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/app/installations/$installation/access_tokens" \
