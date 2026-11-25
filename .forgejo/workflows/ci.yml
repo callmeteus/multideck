@@ -83,6 +83,8 @@ jobs:
           cp target/release/multideck pkg/multideck/
           cp README.md LICENSE pkg/multideck/
           tar -czf dist/multideck-linux-x86_64.tar.gz -C pkg multideck
+          chmod +x packaging/linux/build-deb.sh
+          ./packaging/linux/build-deb.sh
 
           body="{\"tag_name\":\"$tag\",\"name\":\"MultiDeck $tag\",\"prerelease\":true,\"generate_release_notes\":true}"
           curl -sS -o /dev/null -X POST \
@@ -99,20 +101,20 @@ jobs:
             exit 1
           fi
 
-          name=multideck-linux-x86_64.tar.gz
-          existing=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/$GH_REPO/releases/$release_id/assets" \
-            | jq -r ".[] | select(.name == \"$name\") | .id")
-          if [ -n "$existing" ]; then
-            curl -sS -o /dev/null -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/$GH_REPO/releases/assets/$existing"
-          fi
-          curl -sS -o /dev/null -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary "@dist/$name" \
-            "https://uploads.github.com/repos/$GH_REPO/releases/$release_id/assets?name=$name"
-          echo "published $tag ($name)"
+          for file in dist/*; do
+            name="$(basename "$file")"
+            code=$(curl -sS -o /tmp/upload.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$file" \
+              "https://uploads.github.com/repos/$GH_REPO/releases/$release_id/assets?name=$name")
+            if [ "$code" = "201" ] || [ "$code" = "422" ]; then
+              echo "published $name"
+            else
+              cat /tmp/upload.json
+              exit 1
+            fi
+          done
 
   windows:
     name: windows
@@ -194,17 +196,17 @@ jobs:
             exit 1
           fi
 
-          name=multideck-windows-x86_64.zip
-          existing=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/repos/$GH_REPO/releases/$release_id/assets" \
-            | jq -r ".[] | select(.name == \"$name\") | .id")
-          if [ -n "$existing" ]; then
-            curl -sS -o /dev/null -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/$GH_REPO/releases/assets/$existing"
-          fi
-          curl -sS -o /dev/null -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary "@dist/$name" \
-            "https://uploads.github.com/repos/$GH_REPO/releases/$release_id/assets?name=$name"
-          echo "published $tag ($name)"
+          for file in dist/*; do
+            name="$(basename "$file")"
+            code=$(curl -sS -o /tmp/upload.json -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$file" \
+              "https://uploads.github.com/repos/$GH_REPO/releases/$release_id/assets?name=$name")
+            if [ "$code" = "201" ] || [ "$code" = "422" ]; then
+              echo "published $name"
+            else
+              cat /tmp/upload.json
+              exit 1
+            fi
+          done
