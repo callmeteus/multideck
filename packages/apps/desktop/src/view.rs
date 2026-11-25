@@ -589,12 +589,36 @@ fn mobile_pair_body<'a>(
                 .color(Colors::MUTED),
             section(tr!("mobile_pair_network")),
             Column::with_children(chips).spacing(4),
+            tailscale_hint(app),
         ]
         .spacing(6)
         .width(Length::Fill),
     ]
     .spacing(18)
     .into()
+}
+
+fn tailscale_hint(app: &App) -> Element<'_, Message> {
+    let selected = app.mobile_address.as_deref().and_then(|address| {
+        app.mobile_interfaces
+            .iter()
+            .find(|interface| interface.address == address)
+    });
+    let is_tailscale = selected
+        .map(|interface| {
+            interface.name.to_ascii_lowercase().contains("tailscale")
+                || interface.address.starts_with("100.")
+        })
+        .unwrap_or(false);
+    if is_tailscale {
+        text(tr!("mobile_pair_tailscale_hint"))
+            .size(10)
+            .width(Length::Fill)
+            .color(Colors::MUTED)
+            .into()
+    } else {
+        container(text("")).height(Length::Fixed(0.0)).into()
+    }
 }
 
 fn pairing_modal(app: &App) -> Element<'_, Message> {

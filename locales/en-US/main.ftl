@@ -163,3 +163,4 @@ devices_usb = USB deck
 settings_device = Device
 settings_device_desc = Which deck MultiDeck drives. Switching restarts the connection.
 status_device_changed = Device changed.
+mobile_pair_tailscale_hint = Tailscale address selected. The phone must be in the same tailnet and the ACL must allow it. On the same Wi-Fi, pick the local network address.

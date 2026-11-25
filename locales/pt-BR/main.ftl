@@ -163,3 +163,4 @@ devices_usb = Deck USB
 settings_device = Dispositivo
 settings_device_desc = Qual deck o MultiDeck controla. Trocar reinicia a conexão.
 status_device_changed = Dispositivo alterado.
+mobile_pair_tailscale_hint = Endereço do Tailscale selecionado. O celular precisa estar na mesma tailnet e a ACL precisa permitir. No mesmo Wi-Fi, escolha o endereço da rede local.
